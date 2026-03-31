@@ -1,0 +1,27 @@
+# User profiles — contains personal data
+profiles/
+
+# Environment variables
+.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+
+# Playwright browser data
+playwright/.auth/
+playwright/.cache/
+browser_data/
+*.session
+*.cookies
+
+# OS
+.DS_Store
+Thumbs.db
