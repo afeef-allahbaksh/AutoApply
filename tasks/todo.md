@@ -21,7 +21,7 @@
 - [x] Define `companies.json` schema (name, ats, slug, careers_url, added date)
 - [x] Write discovered companies to `companies.json` (merge with existing, don't overwrite manual entries)
 - [x] Support manual additions — users can hand-edit `companies.json` and it won't be clobbered
-- [x] Add CLI command: `python main.py --profile afeef discover`
+- [x] Add CLI command: `python main.py --profile {profile} discover`
 
 ## Phase 3: Job Discovery
 - [x] Build Greenhouse jobs API client (`boards-api.greenhouse.io/v1/boards/{slug}/jobs`)
@@ -30,7 +30,7 @@
 - [x] Keyword matching / relevance scoring against `job_preferences.roles`
 - [x] Deduplication — skip jobs already in `applications.json`
 - [x] Store discovered jobs in a working file (`jobs.json` or similar) for the next stage
-- [x] Add CLI command: `python main.py --profile afeef discover-jobs`
+- [x] Add CLI command: `python main.py --profile {profile} discover-jobs`
 
 ## Phase 4: Resume Optimizer
 - [x] Define `resume.json` schema (dynamic: section_order controls layout, all sections optional except contact)
@@ -40,7 +40,7 @@
 - [x] Prompt engineering — mirror JD language, surface keywords, rewrite bullets, preserve metrics and voice
 - [x] Diff view — show what changed between base and tailored resume before proceeding
 - [x] Save tailored resume per application (JSON + PDF to `profiles/{name}/resumes/`)
-- [x] Add CLI command: `python main.py --profile afeef optimize --job <index>`
+- [x] Add CLI command: `python main.py --profile {profile} optimize --job <index>`
 
 ## Phase 5: Playwright ATS Handlers
 - [x] Set up Playwright with persistent browser context (cookies, sessions)
@@ -62,7 +62,7 @@
 - [x] Log every application to `applications.json` (company, role, URL, date, status, tailored resume path)
 - [x] Deduplication check before applying — composite key (company + role + posting URL)
 - [x] Status tracking: `applied`, `failed`, `review_pending`, `skipped`
-- [x] Summary command: `python main.py --profile afeef history`
+- [x] Summary command: `python main.py --profile {profile} history`
 
 ## Phase 8: Error Recovery
 - [x] Save Playwright progress state per application (fields filled, custom answers → `progress/`)
