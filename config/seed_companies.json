@@ -1,0 +1,13 @@
+[
+  {"slug": "anthropic", "ats": "greenhouse"},
+  {"slug": "stripe", "ats": "greenhouse"},
+  {"slug": "databricks", "ats": "greenhouse"},
+  {"slug": "figma", "ats": "greenhouse"},
+  {"slug": "coinbase", "ats": "greenhouse"},
+  {"slug": "discord", "ats": "greenhouse"},
+  {"slug": "duolingo", "ats": "greenhouse"},
+  {"slug": "brex", "ats": "greenhouse"},
+  {"slug": "airtable", "ats": "greenhouse"},
+  {"slug": "verkada", "ats": "greenhouse"},
+  {"slug": "spotify", "ats": "lever"}
+]
