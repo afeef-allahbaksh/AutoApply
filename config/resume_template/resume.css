@@ -1,0 +1,104 @@
+@page {
+    size: letter;
+    margin: 0.35in 0.45in 0.35in 0.45in;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: "Times New Roman", Times, serif;
+    font-size: 9.5pt;
+    line-height: 1.2;
+    color: #000;
+}
+
+a {
+    color: #000;
+    text-decoration: none;
+}
+
+/* Contact header */
+.contact {
+    text-align: center;
+    margin-bottom: 1pt;
+}
+
+.contact h1 {
+    font-size: 14pt;
+    font-weight: bold;
+    margin-bottom: 1pt;
+}
+
+.contact p {
+    font-size: 9.5pt;
+}
+
+/* Section headings */
+.section {
+    margin-top: 3pt;
+}
+
+.section h2 {
+    font-size: 9.5pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    border-bottom: 0.75pt solid #000;
+    padding-bottom: 0.5pt;
+    margin-bottom: 2pt;
+}
+
+/* Entry layout */
+.entry-header {
+    display: flex;
+    justify-content: space-between;
+    font-weight: bold;
+    margin-top: 1pt;
+}
+
+.entry-header .org {
+    font-weight: bold;
+}
+
+.entry-header .location {
+    font-weight: normal;
+}
+
+.entry-subheader {
+    display: flex;
+    justify-content: space-between;
+}
+
+.entry-subheader .title {
+    font-style: italic;
+}
+
+.entry-subheader .dates {
+    font-style: italic;
+}
+
+/* Bullet lists */
+ul {
+    margin-left: 13pt;
+    margin-top: 0.5pt;
+    margin-bottom: 0.5pt;
+    list-style-type: disc;
+}
+
+li {
+    margin-bottom: 0pt;
+    page-break-inside: avoid;
+}
+
+/* Skills section */
+.section p {
+    margin-bottom: 0pt;
+}
+
+/* Coursework */
+.coursework {
+    margin-top: 1pt;
+}

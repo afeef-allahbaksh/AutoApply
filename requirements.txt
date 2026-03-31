@@ -1,0 +1,7 @@
+anthropic>=0.86.0
+requests>=2.31.0
+pdfplumber>=0.11.0
+jsonschema>=4.20.0
+playwright>=1.40.0
+python-dotenv>=1.0.0
+weasyprint>=60.0
