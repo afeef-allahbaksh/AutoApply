@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AutoApply Companies Registry",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["name", "ats", "slug", "careers_url", "added"],
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "ats": {
+        "type": "string",
+        "enum": ["greenhouse", "lever"]
+      },
+      "slug": {
+        "type": "string",
+        "minLength": 1
+      },
+      "careers_url": {
+        "type": "string",
+        "minLength": 1
+      },
+      "added": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+      }
+    },
+    "additionalProperties": false
+  }
+}

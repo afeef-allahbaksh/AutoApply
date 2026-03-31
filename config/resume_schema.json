@@ -1,0 +1,144 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AutoApply Structured Resume",
+  "type": "object",
+  "required": ["contact", "section_order"],
+  "properties": {
+    "contact": {
+      "type": "object",
+      "required": ["name", "email", "phone"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "email": { "type": "string", "minLength": 1 },
+        "phone": { "type": "string", "minLength": 1 },
+        "location": { "type": "string" },
+        "linkedin": { "type": "string" },
+        "github": { "type": "string" },
+        "website": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "section_order": {
+      "type": "array",
+      "description": "Controls which sections render and in what order",
+      "items": {
+        "type": "string",
+        "enum": ["summary", "skills", "experience", "projects", "education", "certifications", "custom"]
+      },
+      "minItems": 1
+    },
+    "summary": {
+      "type": "string"
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["category", "items"],
+        "properties": {
+          "category": { "type": "string", "minLength": 1 },
+          "items": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "experience": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["company", "title", "start_date", "bullets"],
+        "properties": {
+          "company": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "location": { "type": "string" },
+          "start_date": { "type": "string", "minLength": 1 },
+          "end_date": { "type": "string" },
+          "bullets": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "bullets"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "url": { "type": "string" },
+          "technologies": { "type": "string" },
+          "bullets": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "education": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["institution", "degree"],
+        "properties": {
+          "institution": { "type": "string", "minLength": 1 },
+          "degree": { "type": "string", "minLength": 1 },
+          "field": { "type": "string" },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" },
+          "gpa": { "type": "string" },
+          "coursework": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "highlights": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "certifications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "issuer": { "type": "string" },
+          "date": { "type": "string" },
+          "url": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "custom": {
+      "type": "array",
+      "description": "Catch-all for sections that don't fit the standard types",
+      "items": {
+        "type": "object",
+        "required": ["heading", "content"],
+        "properties": {
+          "heading": { "type": "string", "minLength": 1 },
+          "content": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

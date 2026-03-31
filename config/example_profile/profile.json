@@ -1,0 +1,19 @@
+{
+  "name": "Morgan Fairweather",
+  "email": "morgan.fairweather@fakeemail.dev",
+  "phone": "+1 (555) 867-5309",
+  "location": "Portland, OR",
+  "linkedin": "linkedin.com/in/morganfairweather",
+  "github": "github.com/morganfairweather",
+  "job_preferences": {
+    "roles": ["Software Engineer", "New Grad SWE", "Junior Software Engineer"],
+    "experience_levels": ["entry-level", "new grad"],
+    "locations": ["Remote", "Portland", "Seattle", "San Francisco"],
+    "salary_min": 85000,
+    "industries": ["AI", "Tech", "SaaS", "FinTech"]
+  },
+  "settings": {
+    "auto_submit": false,
+    "rate_limit_seconds": 30
+  }
+}

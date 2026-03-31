@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AutoApply Profile",
+  "type": "object",
+  "required": ["name", "email", "phone", "location", "job_preferences", "settings"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "email": {
+      "type": "string",
+      "format": "email"
+    },
+    "phone": {
+      "type": "string",
+      "minLength": 1
+    },
+    "location": {
+      "type": "string",
+      "minLength": 1
+    },
+    "linkedin": {
+      "type": "string"
+    },
+    "github": {
+      "type": "string"
+    },
+    "job_preferences": {
+      "type": "object",
+      "required": ["roles", "experience_levels", "locations"],
+      "properties": {
+        "roles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "experience_levels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "locations": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "salary_min": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "industries": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "settings": {
+      "type": "object",
+      "required": ["auto_submit"],
+      "properties": {
+        "auto_submit": {
+          "type": "boolean"
+        },
+        "rate_limit_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 30
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

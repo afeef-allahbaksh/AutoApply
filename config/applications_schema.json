@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AutoApply Application History",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["company", "role", "posting_url", "date", "status"],
+    "properties": {
+      "company": {
+        "type": "string",
+        "minLength": 1
+      },
+      "role": {
+        "type": "string",
+        "minLength": 1
+      },
+      "posting_url": {
+        "type": "string",
+        "minLength": 1
+      },
+      "date": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["applied", "failed", "review_pending", "skipped"]
+      },
+      "ats": {
+        "type": "string",
+        "enum": ["greenhouse", "lever"]
+      },
+      "tailored_resume_path": {
+        "type": "string"
+      },
+      "error": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false
+  }
+}

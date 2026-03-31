@@ -1,0 +1,10 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AutoApply Canned Responses",
+  "description": "Key-value pairs of common ATS questions and their pre-set answers",
+  "type": "object",
+  "additionalProperties": {
+    "type": "string"
+  },
+  "minProperties": 1
+}
