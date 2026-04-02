@@ -1,13 +1,10 @@
 import json
 from pathlib import Path
 
-import anthropic
 import pdfplumber
-from dotenv import load_dotenv
 
+from src.api import create_message
 from src.schemas import validate_resume
-
-load_dotenv()
 
 RESUME_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "config" / "resume_schema.json"
 
@@ -43,8 +40,7 @@ def parse_pdf_to_resume(pdf_path: str) -> dict:
     with open(RESUME_SCHEMA_PATH) as f:
         schema = f.read()
 
-    client = anthropic.Anthropic()
-    message = client.messages.create(
+    message = create_message(
         model="claude-sonnet-4-20250514",
         max_tokens=4096,
         messages=[{
@@ -61,13 +57,4 @@ def parse_pdf_to_resume(pdf_path: str) -> dict:
 
     resume_data = json.loads(raw_json)
     validate_resume(resume_data)
-    return resume_data
-
-
-def import_resume(pdf_path: str, output_path: str) -> dict:
-    """Parse a PDF resume and save as resume.json."""
-    resume_data = parse_pdf_to_resume(pdf_path)
-    with open(output_path, "w") as f:
-        json.dump(resume_data, f, indent=2)
-        f.write("\n")
     return resume_data

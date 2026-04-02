@@ -1,10 +1,12 @@
 import json
-import time
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
 
-PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
+from src.api import create_message
+from src.profile_loader import PROFILES_DIR
 
 GREENHOUSE_JOBS_API = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
 LEVER_JOBS_API = "https://api.lever.co/v0/postings/{slug}"
@@ -82,11 +84,18 @@ def score_job(job: dict, preferences: dict) -> float:
     return score
 
 
+NO_PREFERENCE = {"any", "no preference", "anywhere", "all"}
+
+
 def _matches_location(job_location: str, preferred_locations: list[str]) -> bool:
     """Check if the job location matches any preferred location.
 
     Handles cases like 'Remote', 'New York, NY', 'San Francisco, CA; New York, NY'.
+    Returns True for all jobs if locations contains 'Any' or 'No preference'.
     """
+    # No preference = match everything
+    if any(loc.lower() in NO_PREFERENCE for loc in preferred_locations):
+        return True
     if not job_location:
         return False
     job_lower = job_location.lower()
@@ -126,6 +135,58 @@ def filter_jobs(jobs: list[dict], preferences: dict) -> list[dict]:
     return matched
 
 
+def classify_jobs_by_level(jobs: list[dict], experience_levels: list[str]) -> list[dict]:
+    """Use a single LLM call to filter out jobs that don't match the user's experience level.
+
+    Sends all titles in one batch — costs ~$0.01 regardless of count.
+    Returns only the jobs that match the target experience level.
+    """
+    if not jobs or not experience_levels:
+        return jobs
+
+    # Build entries with title + first 150 chars of description for context
+    entries = []
+    for i, job in enumerate(jobs):
+        desc = job.get("content", "")
+        # Strip HTML tags for a clean snippet
+        clean = re.sub(r"<[^>]+>", " ", desc).strip()
+        snippet = clean[:150] + "..." if len(clean) > 150 else clean
+        entries.append(f"{i}: {job['title']} | {snippet}" if snippet else f"{i}: {job['title']}")
+
+    prompt = f"""You are a job level classifier. Given a list of job postings (title + description snippet) and the applicant's target experience level, return ONLY the indices of jobs that match.
+
+Target experience level: {', '.join(experience_levels)}
+
+Jobs (index: title | description snippet):
+{chr(10).join(entries)}
+
+Rules:
+- A "new grad" or "entry-level" applicant should match: new grad, junior, associate, entry-level, early career, and generic titles without a seniority prefix (e.g. "Software Engineer" is fine, "Senior Software Engineer" is not)
+- Check the description snippet too — if it mentions "5+ years", "7+ years", "extensive experience" etc., exclude it for entry-level applicants
+- If the description mentions "0-2 years", "new grad welcome", "early career" etc., include it even if the title is ambiguous
+- When in doubt, include the job (better to show too many than miss a good match)
+- Return ONLY a JSON array of matching index numbers, nothing else"""
+
+    message = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    raw = message.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1]
+        raw = raw.rsplit("```", 1)[0]
+
+    try:
+        matching_indices = set(json.loads(raw))
+    except (json.JSONDecodeError, TypeError):
+        # If parsing fails, return all jobs rather than losing everything
+        return jobs
+
+    return [job for i, job in enumerate(jobs) if i in matching_indices]
+
+
 def deduplicate_jobs(jobs: list[dict], applications: list[dict]) -> list[dict]:
     """Remove jobs the user has already applied to.
 
@@ -153,11 +214,11 @@ def fetch_jobs_for_company(company: dict) -> list[dict]:
     return []
 
 
-def discover_jobs(profile_name: str, delay: float = 1.0) -> list[dict]:
+def discover_jobs(profile_name: str) -> list[dict]:
     """Full job discovery pipeline for a profile.
 
     1. Load companies.json
-    2. Fetch jobs from each company
+    2. Fetch jobs from each company (in parallel)
     3. Filter by preferences
     4. Deduplicate against applications.json
     5. Save to jobs.json
@@ -186,16 +247,27 @@ def discover_jobs(profile_name: str, delay: float = 1.0) -> list[dict]:
             applications = json.load(f)
 
     all_jobs = []
-    for company in companies:
-        print(f"  fetching: {company['name']} ({company['ats']}/{company['slug']})...")
-        jobs = fetch_jobs_for_company(company)
-        print(f"    found {len(jobs)} total jobs")
-        all_jobs.extend(jobs)
-        time.sleep(delay)
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        futures = {
+            pool.submit(fetch_jobs_for_company, company): company
+            for company in companies
+        }
+        for future in as_completed(futures):
+            company = futures[future]
+            jobs = future.result()
+            print(f"  fetched: {company['name']} ({company['ats']}/{company['slug']}) — {len(jobs)} jobs")
+            all_jobs.extend(jobs)
 
-    # Filter by preferences
+    # Filter by keyword + location
     matched = filter_jobs(all_jobs, preferences)
-    print(f"\n  {len(matched)} jobs match preferences (from {len(all_jobs)} total)")
+    print(f"\n  {len(matched)} jobs match keywords/location (from {len(all_jobs)} total)")
+
+    # Filter by experience level using LLM
+    experience_levels = preferences.get("experience_levels", [])
+    if experience_levels and matched:
+        print(f"  Classifying {len(matched)} jobs by experience level (~$0.01)...")
+        matched = classify_jobs_by_level(matched, experience_levels)
+        print(f"  {len(matched)} jobs match experience level")
 
     # Deduplicate
     new_jobs = deduplicate_jobs(matched, applications)

@@ -1,7 +1,4 @@
-import anthropic
-from dotenv import load_dotenv
-
-load_dotenv()
+from src.api import create_message
 
 COVER_LETTER_PROMPT = """Write a concise cover letter for this job application.
 
@@ -45,8 +42,7 @@ def generate_cover_letter(
 
     background = "\n".join(background_parts)
 
-    client = anthropic.Anthropic()
-    message = client.messages.create(
+    message = create_message(
         model="claude-sonnet-4-20250514",
         max_tokens=1000,
         messages=[{

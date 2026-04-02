@@ -1,15 +1,14 @@
 import json
-import re
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from pathlib import Path
 
 import requests
 
+from src.profile_loader import PROFILES_DIR
 from src.schemas import validate_companies
 
 SEED_PATH = Path(__file__).resolve().parent.parent / "config" / "seed_companies.json"
-PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
 
 GREENHOUSE_API = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
 LEVER_API = "https://api.lever.co/v0/postings/{slug}?limit=1"
@@ -73,29 +72,6 @@ def validate_slug(slug: str, ats: str) -> dict | None:
     return None
 
 
-ATS_PATTERNS = [
-    (re.compile(r"boards\.greenhouse\.io/([a-zA-Z0-9_-]+)"), "greenhouse"),
-    (re.compile(r"job-boards\.greenhouse\.io/([a-zA-Z0-9_-]+)"), "greenhouse"),
-    (re.compile(r"jobs\.lever\.co/([a-zA-Z0-9_-]+)"), "lever"),
-    (re.compile(r"jobs\.ashbyhq\.com/([a-zA-Z0-9_-]+)"), "ashby"),
-]
-
-
-def detect_ats_from_url(url: str) -> tuple[str, str] | None:
-    """Detect ATS type and company slug from a careers URL.
-
-    Returns (ats, slug) tuple or None if no match.
-    """
-    for pattern, ats in ATS_PATTERNS:
-        match = pattern.search(url)
-        if match:
-            slug = match.group(1)
-            # Ignore path segments that aren't slugs
-            if slug.lower() in ("jobs", "embed", "api"):
-                continue
-            return (ats, slug)
-    return None
-
 
 def _load_companies(profile_name: str) -> list:
     """Load existing companies.json for a profile, or return empty list."""
@@ -120,9 +96,10 @@ def _existing_slugs(companies: list) -> set:
     return {(c["ats"], c["slug"]) for c in companies}
 
 
-def discover_companies(profile_name: str, delay: float = 1.0) -> dict:
+def discover_companies(profile_name: str, max_workers: int = 5) -> dict:
     """Run company discovery from seed file. Merges with existing companies.json.
 
+    Validates slugs in parallel for faster discovery.
     Returns a summary dict with counts of added, skipped, failed slugs.
     """
     with open(SEED_PATH) as f:
@@ -135,26 +112,33 @@ def discover_companies(profile_name: str, delay: float = 1.0) -> dict:
     skipped = 0
     failed = 0
 
+    # Filter out already-known slugs
+    to_validate = []
     for entry in seeds:
-        slug = entry["slug"]
-        ats = entry["ats"]
-
-        if (ats, slug) in known:
+        if (entry["ats"], entry["slug"]) in known:
             skipped += 1
-            print(f"  skip: {slug} ({ats}) — already in companies.json")
-            continue
-
-        result = validate_slug(slug, ats)
-        if result:
-            existing.append(result)
-            known.add((ats, slug))
-            added += 1
-            print(f"  added: {result['name']} ({ats}/{slug})")
+            print(f"  skip: {entry['slug']} ({entry['ats']}) — already in companies.json")
         else:
-            failed += 1
-            print(f"  failed: {slug} ({ats}) — not found or no jobs")
+            to_validate.append(entry)
 
-        time.sleep(delay)
+    # Validate remaining slugs in parallel
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(validate_slug, entry["slug"], entry["ats"]): entry
+            for entry in to_validate
+        }
+        for future in as_completed(futures):
+            entry = futures[future]
+            slug, ats = entry["slug"], entry["ats"]
+            result = future.result()
+            if result:
+                existing.append(result)
+                known.add((ats, slug))
+                added += 1
+                print(f"  added: {result['name']} ({ats}/{slug})")
+            else:
+                failed += 1
+                print(f"  failed: {slug} ({ats}) — not found or no jobs")
 
     _save_companies(profile_name, existing)
 

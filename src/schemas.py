@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from jsonschema import validate, ValidationError
+from jsonschema import validate
 
 SCHEMA_DIR = Path(__file__).resolve().parent.parent / "config"
 

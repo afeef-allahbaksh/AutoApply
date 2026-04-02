@@ -83,7 +83,6 @@ def _render_education(education: list) -> str:
         end = edu.get("end_date", "")
         start = edu.get("start_date", "")
         dates = f"{start} – {end}" if start else end
-        location = ""
         degree = edu["degree"]
         if edu.get("field"):
             degree += f' in {edu["field"]}'
@@ -93,7 +92,6 @@ def _render_education(education: list) -> str:
         header = (
             f'<div class="entry-header">'
             f'<span class="org">{edu["institution"]}</span>'
-            f'<span class="location">{location}</span>'
             f'</div>'
             f'<div class="entry-subheader">'
             f'<span class="title">{degree}</span>'
