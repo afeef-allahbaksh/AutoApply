@@ -7,10 +7,8 @@ from pathlib import Path
 from src.ats_greenhouse import fill_greenhouse_application
 from src.ats_lever import fill_lever_application
 from src.browser import get_browser_context
-from src.profile_loader import Profile
+from src.profile_loader import PROFILES_DIR, Profile
 from src.schemas import validate_applications
-
-PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
 
 
 def _save_progress(profile_name: str, job: dict, fields_filled: list, custom_answers: list) -> str:
@@ -100,8 +98,12 @@ def apply_to_jobs(
             if resumes_dir.exists():
                 # Look for most recent matching resume
                 from src.resume_optimizer import _slugify
-                prefix = f"{_slugify(company)}_{_slugify(role)}"
-                matching = sorted(resumes_dir.glob(f"{prefix}*.pdf"), reverse=True)
+                # Match by name_company or company_role (supports both naming conventions)
+                name_slug = _slugify(profile.data.get("name", ""))
+                matching = sorted(resumes_dir.glob(f"{name_slug}_{_slugify(company)}*.pdf"), reverse=True)
+                if not matching:
+                    # Fallback: old naming convention (company_role_date)
+                    matching = sorted(resumes_dir.glob(f"{_slugify(company)}_{_slugify(role)}*.pdf"), reverse=True)
                 if matching:
                     resume_path = str(matching[0])
                     print(f"  Using tailored resume: {matching[0].name}")
@@ -143,38 +145,50 @@ def apply_to_jobs(
                 fail_screenshot = _take_screenshot(page, profile.profile_name, company, f"{role}_FAILED")
                 print(f"  Failure screenshot: {fail_screenshot}")
 
-                # Detect CAPTCHA
+                # Detect CAPTCHA — pause for user to solve, then retry on current page
                 page_text = page.content().lower()
                 if "captcha" in page_text or "recaptcha" in page_text or "hcaptcha" in page_text:
                     print(f"  CAPTCHA detected! Pausing for manual intervention.")
-                    print(f"  Solve the CAPTCHA in the browser, then press Enter to continue.")
+                    print(f"  Solve the CAPTCHA in the browser, then press Enter to retry.")
                     try:
                         input("  Press Enter after solving CAPTCHA (or Ctrl+C to skip)...")
-                        # Retry the form fill after CAPTCHA is solved
-                        continue
+                        # Retry form fill on the current page (don't re-navigate)
+                        fill_fn = fill_greenhouse_application if ats == "greenhouse" else fill_lever_application
+                        fill_result = fill_fn(
+                            page=page,
+                            job_url=posting_url,
+                            profile_data=profile.data,
+                            responses=profile.responses,
+                            resume_path=resume_path,
+                            job_content=job.get("content", ""),
+                            resume_data=resume_data,
+                            company=company,
+                            role=role,
+                        )
                     except (EOFError, KeyboardInterrupt):
                         print(f"  Skipping CAPTCHA'd application.")
 
-                # Save progress for retry
-                progress_path = _save_progress(
-                    profile.profile_name, job,
-                    fill_result.get("fields_filled", []),
-                    fill_result.get("custom_answers", []),
-                )
-                print(f"  Progress saved: {progress_path}")
+                if not fill_result["success"]:
+                    # Save progress for retry
+                    progress_path = _save_progress(
+                        profile.profile_name, job,
+                        fill_result.get("fields_filled", []),
+                        fill_result.get("custom_answers", []),
+                    )
+                    print(f"  Progress saved: {progress_path}")
 
-                applications.append({
-                    "company": company,
-                    "role": role,
-                    "posting_url": posting_url,
-                    "date": date.today().isoformat(),
-                    "status": "failed",
-                    "ats": ats,
-                    "error": error_msg,
-                })
-                _save_applications(profile.profile_name, applications)
-                results.append({"company": company, "role": role, "status": "failed"})
-                continue
+                    applications.append({
+                        "company": company,
+                        "role": role,
+                        "posting_url": posting_url,
+                        "date": date.today().isoformat(),
+                        "status": "failed",
+                        "ats": ats,
+                        "error": fill_result.get("error") or error_msg,
+                    })
+                    _save_applications(profile.profile_name, applications)
+                    results.append({"company": company, "role": role, "status": "failed"})
+                    continue
 
             print(f"  Filled: {', '.join(fill_result['fields_filled'])}")
             if fill_result["custom_answers"]:

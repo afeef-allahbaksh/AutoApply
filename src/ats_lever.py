@@ -1,11 +1,9 @@
 import time
 from pathlib import Path
 
-import anthropic
-from dotenv import load_dotenv
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
 
-load_dotenv()
+from src.api import create_message
 
 # Selectors
 NAME = 'input[name="name"]'
@@ -16,6 +14,7 @@ URLS = 'input[name="urls"]'
 LINKEDIN_URL = 'input[name="urls[LinkedIn]"], input[placeholder*="LinkedIn" i]'
 GITHUB_URL = 'input[name="urls[GitHub]"], input[placeholder*="GitHub" i]'
 RESUME_UPLOAD = 'input[type="file"][name="resume"]'
+RESUME_BUTTON = 'button:has-text("Attach"), button:has-text("Upload"), label:has-text("Attach"), label:has-text("Upload resume")'
 COMMENTS = 'textarea[name="comments"]'
 SUBMIT_BUTTON = 'button:has-text("Submit")'
 
@@ -53,30 +52,41 @@ def _upload_if_exists(page: Page, selector: str, file_path: str) -> bool:
     return False
 
 
-def _answer_custom_question(question_text: str, job_content: str, profile_data: dict) -> str:
-    """Use Claude to answer a custom free-text question."""
-    client = anthropic.Anthropic()
-    message = client.messages.create(
+def _answer_custom_question(
+    question_text: str,
+    job_content: str,
+    profile_data: dict,
+    resume_data: dict | None = None,
+    responses: dict | None = None,
+) -> str:
+    """Use Claude to answer a custom question with full applicant context."""
+    # Reuse the same context builder from greenhouse handler
+    from src.ats_greenhouse import _build_applicant_context
+    context = _build_applicant_context(profile_data, resume_data, responses or {})
+
+    message = create_message(
         model="claude-sonnet-4-20250514",
         max_tokens=500,
         messages=[{
             "role": "user",
-            "content": f"""Answer this job application question concisely and professionally.
+            "content": f"""Answer this job application question using the applicant's real data below.
 
 Question: {question_text}
 
-Context about the applicant:
-Name: {profile_data.get('name', '')}
-Location: {profile_data.get('location', '')}
-Current focus: {', '.join(profile_data.get('job_preferences', {}).get('roles', []))}
+Applicant data:
+{context}
 
-Job description context:
+Job description:
 {job_content[:2000]}
 
 Rules:
-- Answer in 2-4 sentences max unless the question requires more
-- Be genuine and specific, not generic
-- Draw from the applicant's context where relevant
+- Use EXACT data from the applicant profile — never guess or fabricate URLs, names, dates, GPAs, etc.
+- For URL/link fields (website, portfolio, LinkedIn, GitHub), return ONLY the bare URL — no explanation, no text, just the URL
+- For yes/no confirmation questions (e.g. "Can you confirm...?", "Are you...?", "Do you...?", "Will you...?"), return ONLY "Yes" or "No"
+- For factual questions (university, GPA, graduation date), return just the value
+- For open-ended questions, answer in 2-4 sentences using the applicant's real experience
+- If the question matches a pre-set response, use that exact value
+- NEVER explain that data is missing — if you don't have the answer, return an empty string
 - Return ONLY the answer text, no quotes or labels""",
         }],
     )
@@ -88,6 +98,7 @@ def _handle_custom_fields(
     responses: dict,
     job_content: str,
     profile_data: dict,
+    resume_data: dict | None = None,
 ) -> list[dict]:
     """Find and fill custom fields beyond the standard ones.
 
@@ -132,7 +143,10 @@ def _handle_custom_fields(
                         break
 
                 if answer is None:
-                    answer = _answer_custom_question(label_text, job_content, profile_data)
+                    answer = _answer_custom_question(
+                        label_text, job_content, profile_data,
+                        resume_data=resume_data, responses=responses,
+                    )
                     method = "claude"
 
                 el.fill(answer)
@@ -207,22 +221,60 @@ def fill_lever_application(
             if value and _fill_if_exists(page, selector, value):
                 result["fields_filled"].append(name)
 
-        # Upload resume
+        # Upload resume — click upload button first if needed, then set file
         if resume_path and Path(resume_path).exists():
-            if _upload_if_exists(page, RESUME_UPLOAD, resume_path):
-                result["fields_filled"].append("resume")
+            uploaded = False
+            try:
+                upload_btn = page.locator(RESUME_BUTTON)
+                if upload_btn.count() > 0:
+                    upload_btn.first.click()
+                    time.sleep(1)
+            except Exception:
+                pass
 
-        # Cover letter — Lever uses the "Additional information" comments field
+            resume_selectors = [
+                RESUME_UPLOAD,
+                'input[type="file"][id*="resume" i]',
+                'input[type="file"]',
+            ]
+            for sel in resume_selectors:
+                if _upload_if_exists(page, sel, resume_path):
+                    result["fields_filled"].append("resume")
+                    uploaded = True
+                    break
+
+            if not uploaded:
+                try:
+                    file_inputs = page.locator('input[type="file"]')
+                    if file_inputs.count() > 0:
+                        file_inputs.first.set_input_files(resume_path)
+                        result["fields_filled"].append("resume")
+                except Exception:
+                    pass
+
+        # Cover letter — only fill the comments field if it looks like a cover letter
+        # or "additional information" field, not a generic "how did you hear about us" textarea
         comments_el = page.locator(COMMENTS)
         if comments_el.count() > 0 and resume_data:
-            from src.cover_letter import generate_cover_letter
-            cover = generate_cover_letter(profile_data, resume_data, company, role, job_content)
-            comments_el.first.fill(cover)
-            result["fields_filled"].append("cover_letter")
+            # Check the label to make sure it's appropriate for a cover letter
+            label_text = ""
+            try:
+                label_el = page.locator('label[for="comments"], label:has-text("Additional")')
+                if label_el.count() > 0:
+                    label_text = label_el.first.inner_text().strip().lower()
+            except Exception:
+                pass
+            # Only fill if the label suggests additional info / cover letter, or if no label found (default Lever behavior)
+            if not label_text or any(kw in label_text for kw in ("additional", "cover", "comments", "anything else")):
+                from src.cover_letter import generate_cover_letter
+                cover = generate_cover_letter(profile_data, resume_data, company, role, job_content)
+                comments_el.first.fill(cover)
+                result["fields_filled"].append("cover_letter")
 
-        # Handle custom questions
+        # Handle custom questions — pass full resume data for intelligent answering
         result["custom_answers"] = _handle_custom_fields(
             page, responses, job_content, profile_data,
+            resume_data=resume_data,
         )
 
         result["success"] = True
