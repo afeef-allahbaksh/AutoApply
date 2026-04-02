@@ -5,7 +5,7 @@ from src.discovery import discover_companies
 from src.job_discovery import discover_jobs
 from src.profile_loader import Profile
 from src.resume_diff import diff_resumes
-from src.resume_optimizer import optimize_resume, save_tailored_resume
+from src.resume_optimizer import optimize_resume, save_tailored_resume, select_projects
 from src.schemas import validate_resume
 
 
@@ -87,9 +87,20 @@ def run_pipeline(profile: Profile, headless: bool = False) -> None:
         print(f"\n  [{i + 1}/{len(selected_jobs)}] {company} — {role}")
 
         if should_optimize:
+            job_content = job.get("content", role)
+
+            # Select best projects from pool if available
+            selection = select_projects(base_resume, job_content)
+            if selection["had_pool"]:
+                print(f"    Selected projects: {', '.join(p['name'] for p in selection['projects'])}")
+                tailored_base = {**base_resume, "projects": selection["projects"]}
+            else:
+                tailored_base = base_resume
+                selection = None
+
             print(f"    Tailoring resume...")
-            optimized = optimize_resume(base_resume, job.get("content", role))
-            diff = diff_resumes(base_resume, optimized)
+            optimized = optimize_resume(tailored_base, job_content)
+            diff = diff_resumes(tailored_base, optimized, project_selection=selection)
             if diff != "No changes.":
                 print(f"\n{diff}")
             paths = save_tailored_resume(profile_name, optimized, company, role)

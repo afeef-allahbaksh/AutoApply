@@ -84,6 +84,25 @@
         "additionalProperties": false
       }
     },
+    "project_pool": {
+      "type": "array",
+      "description": "All available projects. The optimizer picks the most relevant ones per job. If absent, projects array is used as-is.",
+      "items": {
+        "type": "object",
+        "required": ["name", "bullets"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "url": { "type": "string" },
+          "technologies": { "type": "string" },
+          "bullets": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "education": {
       "type": "array",
       "items": {

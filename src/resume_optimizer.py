@@ -4,15 +4,36 @@ import re
 from datetime import date
 from pathlib import Path
 
-import anthropic
-from dotenv import load_dotenv
-
+from src.api import create_message
+from src.profile_loader import PROFILES_DIR
 from src.resume_renderer import render_resume_pdf
 from src.schemas import validate_resume
 
-PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
+SELECT_PROJECTS_PROMPT = """You are an expert resume strategist. Given a pool of projects and a job description, select the {num_projects} most relevant projects for this specific role.
 
-load_dotenv()
+Rules:
+1. Pick exactly {num_projects} projects — no more, no less
+2. Choose projects whose technologies, domain, or demonstrated skills best match the job requirements
+3. Consider both direct keyword matches AND transferable skills
+4. For EVERY project in the pool, provide a one-sentence reason for selecting or skipping it
+
+Return ONLY valid JSON in this exact format — no markdown fences, no commentary:
+{{
+  "selected": ["Project Name 1", "Project Name 2"],
+  "reasoning": [
+    {{"project": "Project Name", "selected": true, "reason": "One sentence why"}},
+    ...
+  ]
+}}
+
+Project pool:
+{project_pool_json}
+
+Job description:
+{job_description}
+
+Return the selection JSON:"""
+
 
 OPTIMIZE_PROMPT = """You are an expert resume optimizer. Given a structured resume (JSON) and a job description, tailor the resume for this specific role.
 
@@ -42,8 +63,7 @@ def optimize_resume(base_resume: dict, job_description: str) -> dict:
 
     Returns the optimized resume dict (validated against schema).
     """
-    client = anthropic.Anthropic()
-    message = client.messages.create(
+    message = create_message(
         model="claude-sonnet-4-20250514",
         max_tokens=8192,
         messages=[{
@@ -63,6 +83,65 @@ def optimize_resume(base_resume: dict, job_description: str) -> dict:
     optimized = json.loads(raw_json)
     validate_resume(optimized)
     return optimized
+
+
+def select_projects(base_resume: dict, job_description: str) -> dict:
+    """Select the most relevant projects from project_pool for a job.
+
+    Returns dict with:
+      - "projects": list of selected project dicts (ready to inject into resume)
+      - "reasoning": list of {project, selected, reason} for diff display
+      - "had_pool": whether project_pool existed (False means no selection needed)
+    """
+    pool = base_resume.get("project_pool", [])
+    current_projects = base_resume.get("projects", [])
+    num_projects = len(current_projects)
+
+    if not pool or len(pool) <= num_projects:
+        return {"projects": current_projects, "reasoning": [], "had_pool": False}
+
+    pool_json = json.dumps(
+        [{"name": p["name"], "technologies": p.get("technologies", ""), "bullets": p["bullets"]} for p in pool],
+        indent=2,
+    )
+
+    message = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2048,
+        messages=[{
+            "role": "user",
+            "content": SELECT_PROJECTS_PROMPT.format(
+                num_projects=num_projects,
+                project_pool_json=pool_json,
+                job_description=job_description,
+            ),
+        }],
+    )
+
+    raw = message.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1]
+        raw = raw.rsplit("```", 1)[0]
+
+    result = json.loads(raw)
+    selected_names = set(result["selected"])
+
+    # Build the projects list in selection order
+    pool_by_name = {p["name"]: p for p in pool}
+    selected_projects = [pool_by_name[name] for name in result["selected"] if name in pool_by_name]
+
+    # Fallback: if Claude returned wrong count, pad or trim
+    if len(selected_projects) < num_projects:
+        for p in pool:
+            if p["name"] not in selected_names and len(selected_projects) < num_projects:
+                selected_projects.append(p)
+    selected_projects = selected_projects[:num_projects]
+
+    return {
+        "projects": selected_projects,
+        "reasoning": result.get("reasoning", []),
+        "had_pool": True,
+    }
 
 
 def _slugify(text: str) -> str:
@@ -86,7 +165,8 @@ def save_tailored_resume(
     resumes_dir = PROFILES_DIR / profile_name / "resumes"
     resumes_dir.mkdir(exist_ok=True)
 
-    slug = f"{_slugify(company)}_{_slugify(role)}_{date.today().isoformat()}"
+    name = optimized_resume.get("contact", {}).get("name", "resume")
+    slug = f"{_slugify(name)}_{_slugify(company)}"
 
     json_path = resumes_dir / f"{slug}.json"
     pdf_path = resumes_dir / f"{slug}.pdf"

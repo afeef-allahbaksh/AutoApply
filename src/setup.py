@@ -1,10 +1,10 @@
 import json
 from pathlib import Path
 
+from src.profile_loader import PROFILES_DIR
 from src.resume_parser import parse_pdf_to_resume
+from src.role_expander import expand_roles
 from src.schemas import validate_profile, validate_responses
-
-PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
 
 
 def _ask(prompt: str, default: str = "") -> str:
@@ -73,12 +73,23 @@ def run_setup(profile_name: str | None = None) -> str:
     if not levels:
         levels = ["entry-level"]
 
-    locations = _ask_list("Preferred locations (comma-separated)", "Remote, New York, San Francisco")
+    # Expand roles using LLM
+    print("\n  Expanding role keywords (one-time, ~$0.005)...")
+    expanded_roles = expand_roles(roles, levels)
+    print(f"  Generated {len(expanded_roles)} search keywords from your {len(roles)} role(s)")
+    print(f"  Examples: {', '.join(expanded_roles[:8])}...")
+
+    locations = _ask_list("Preferred locations (comma-separated, or 'Any' for no preference)", "Remote, New York, San Francisco")
     if not locations:
         locations = ["Remote"]
 
     salary_input = _ask("Minimum salary (or press Enter to skip)", "")
-    salary_min = int(salary_input) if salary_input.isdigit() else None
+    salary_min = None
+    if salary_input:
+        try:
+            salary_min = int(salary_input.replace(",", "").split(".")[0])
+        except ValueError:
+            print(f"    Could not parse '{salary_input}' as a number, skipping salary.")
 
     industries = _ask_list("Preferred industries (comma-separated, or Enter to skip)", "AI, Tech, SaaS")
 
@@ -94,7 +105,7 @@ def run_setup(profile_name: str | None = None) -> str:
         "phone": phone,
         "location": location,
         "job_preferences": {
-            "roles": roles,
+            "roles": expanded_roles,
             "experience_levels": levels,
             "locations": locations,
         },
@@ -147,11 +158,71 @@ def run_setup(profile_name: str | None = None) -> str:
     if pdf_path and Path(pdf_path).exists():
         print("\nParsing resume (this calls Claude API — one-time cost ~$0.01)...")
         resume_data = parse_pdf_to_resume(pdf_path)
+
+        # Ensure education entries have start/end dates (needed for ATS form filling)
+        if resume_data.get("education"):
+            print("\n--- Education Dates ---")
+            print("  (ATS forms need structured dates — let's confirm yours)\n")
+            for edu in resume_data["education"]:
+                school = edu.get("institution", "Unknown")
+                if not edu.get("start_date"):
+                    edu["start_date"] = _ask(f"Start date for {school} (e.g. September 2022)")
+                if not edu.get("end_date") or "expected" in edu.get("end_date", "").lower():
+                    edu["end_date"] = _ask(f"End/graduation date for {school} (e.g. June 2026)", edu.get("end_date", ""))
+                # Normalize degree to match dropdown options (e.g. "Bachelor's Degree")
+                degree = edu.get("degree", "")
+                if degree and "bachelor" in degree.lower() and "degree" not in degree.lower():
+                    edu["degree"] = "Bachelor's Degree"
+                elif degree and "master" in degree.lower() and "degree" not in degree.lower():
+                    edu["degree"] = "Master's Degree"
+
+        # Project pool — let user add projects from other resume versions
+        base_projects = resume_data.get("projects", [])
+        if base_projects:
+            print(f"\n--- Project Pool ---")
+            print(f"  Your resume has {len(base_projects)} project(s): {', '.join(p['name'] for p in base_projects)}")
+            print(f"  You can add projects from other resume versions so the optimizer")
+            print(f"  picks the best ones per job (final resume still uses {len(base_projects)}).\n")
+
+            all_projects = list(base_projects)
+            seen_names = {p["name"].lower() for p in all_projects}
+
+            while _ask_yes_no("Add projects from another resume PDF?"):
+                extra_pdf = _ask("Path to resume PDF").strip("'\"")
+                if not Path(extra_pdf).exists():
+                    print(f"    File not found: {extra_pdf}")
+                    continue
+                print("    Parsing...")
+                try:
+                    extra_resume = parse_pdf_to_resume(extra_pdf)
+                    extra_projects = extra_resume.get("projects", [])
+                    added = 0
+                    for p in extra_projects:
+                        if p["name"].lower() not in seen_names:
+                            all_projects.append(p)
+                            seen_names.add(p["name"].lower())
+                            added += 1
+                            print(f"    + {p['name']}")
+                    if added == 0:
+                        print(f"    No new projects found (all duplicates)")
+                    else:
+                        print(f"    Added {added} new project(s)")
+                except Exception as e:
+                    print(f"    Error parsing: {e}")
+
+            if len(all_projects) > len(base_projects):
+                resume_data["project_pool"] = all_projects
+                print(f"\n  Project pool: {len(all_projects)} total projects")
+                for p in all_projects:
+                    marker = "*" if p in base_projects else "+"
+                    print(f"    {marker} {p['name']}")
+                print(f"  (* = in base resume, + = from other versions)")
+
         resume_path = profile_dir / "resume.json"
         with open(resume_path, "w") as f:
             json.dump(resume_data, f, indent=2)
             f.write("\n")
-        print(f"Saved resume to: {resume_path}")
+        print(f"\nSaved resume to: {resume_path}")
         print(f"Sections found: {', '.join(resume_data.get('section_order', []))}")
     elif pdf_path:
         print(f"File not found: {pdf_path}")
