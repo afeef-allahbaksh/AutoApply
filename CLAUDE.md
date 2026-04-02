@@ -1,10 +1,17 @@
 # CLAUDE.md — AutoApply
 
 ## Project
-Fully automated job application pipeline. Four agents in sequence:
-Profile → Discover Companies → Find Open Roles → Optimize Resume → Apply → Log
+Fully automated job application pipeline. Six stages in sequence:
+Profile → Discover Companies → Find Open Roles → Select Projects → Optimize Resume → Apply → Log
 
-Python backend, Playwright for browser automation, Claude API for resume optimization and custom question answering. CLI only for v1.
+Python backend, Playwright for browser automation, Claude API (via shared singleton client with retry) for resume optimization, project selection, and custom question answering. CLI only for v1.
+
+## Architecture notes
+- **Shared API client** — All Claude API calls go through `src/api.py` (`create_message()`) which provides a singleton `anthropic.Anthropic()` client with exponential backoff retry (3 attempts)
+- **Parallel I/O** — Company discovery and job fetching use `ThreadPoolExecutor(max_workers=5)` for concurrent HTTP requests
+- **Project pool** — Resume can have a `project_pool` array with all available projects. The optimizer picks the best N (matching current project count) per job to maintain one-page format
+- **ATS form handling** — Greenhouse uses React Select comboboxes (click→type→pick option pattern) for degree, school, and some custom questions. Date fields use `input[type="number"]` with direct ID targeting (`#start-year--{i}`)
+- **Resume naming** — Tailored resumes saved as `{name}_{company}.pdf` (e.g., `john_doe_anthropic.pdf`)
 
 ## Planning
 - Enter plan mode for any non-trivial task (3+ steps or architectural decisions)
@@ -17,6 +24,7 @@ Python backend, Playwright for browser automation, Claude API for resume optimiz
 - No temporary fixes — find root causes (senior developer standards)
 - For non-trivial changes, pause and ask if there's a more elegant solution
 - Skip elegance checks for simple, obvious fixes
+- Everything user-facing goes through the CLI — no manual file editing required
 
 ## Verification
 - Never mark tasks complete without proving they work
@@ -40,6 +48,8 @@ Python backend, Playwright for browser automation, Claude API for resume optimiz
 - Follow the priority build order in `project-context.md` exactly
 - Greenhouse + Lever only in v1 — no Ashby, no Workday, no Crunchbase
 - CLI only in v1 — no React frontend
+- Everything should be configurable through CLI commands — users should never need to manually edit JSON files
+- All commands that need file paths (import-resume, add-projects) prompt interactively if --pdf is omitted
 - Resume stored as structured JSON, rendered to PDF — never edit PDFs directly
 - Deduplication by composite key (company + role + posting URL)
 - Rate limit Playwright submissions — respect `rate_limit_seconds`

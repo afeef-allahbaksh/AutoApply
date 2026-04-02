@@ -71,6 +71,41 @@
 - [x] Timeout handling for slow-loading ATS pages (configurable timeouts on goto + wait_for_selector)
 - [x] Screenshot on failure for debugging (saved to `screenshots/`)
 
+## Phase 9: Infrastructure & Optimizations
+- [x] Shared Anthropic API client singleton (`src/api.py`) replacing 7 separate instantiations
+- [x] Exponential backoff retry (3 attempts) for all Claude API calls
+- [x] Parallelized company discovery with `ThreadPoolExecutor(max_workers=5)`
+- [x] Parallelized job fetching with `ThreadPoolExecutor(max_workers=5)`
+- [x] Consolidated `PROFILES_DIR` — defined once in `profile_loader.py`, imported everywhere
+- [x] Fixed inline imports (removed redundant `import re` / `import json` in loops)
+- [x] Fixed resume renderer — removed unused location variable in education
+- [x] Fixed resume diff — handles new skill categories and unequal bullet counts
+- [x] Fixed setup salary parsing — handles commas and floats
+
+## Phase 10: Project Pool & Smart Project Selection
+- [x] Added `project_pool` to resume schema (optional array, same structure as `projects`)
+- [x] `select_projects()` — Claude picks the N most relevant projects per job from the pool
+- [x] Project selection reasoning in diff output (selected/skipped with one-sentence reason per project)
+- [x] Setup wizard prompts to add projects from extra resume PDFs
+- [x] CLI command `add-projects --pdf <path>` for adding projects after setup
+- [x] Pipeline and optimize commands integrate project selection before optimization
+- [x] Resume naming: `{name}_{company}.pdf` with applicant lookup fallback to old naming
+
+## Phase 11: Greenhouse Form Handling Fixes
+- [x] React Select combobox handling for degree, school, custom questions (click→type→pick option)
+- [x] Direct ID targeting for date fields (`#start-year--{i}`, `#end-year--{i}`)
+- [x] `_try_select_date` detects `<input>` vs `<select>` and uses `fill()` vs `select_option()`
+- [x] Custom question combobox branch (checks `role="combobox"` before `tag in ("input", "textarea")`)
+- [x] Optional URL fields (website, portfolio) skipped when user has no data
+- [x] Yes/no confirmation questions return only "Yes" or "No"
+- [x] CAPTCHA retry fixed — retries on current page instead of re-navigating
+
+## Phase 12: CLI Management Commands (No Manual JSON Editing)
+- [x] `add-company` — Add a company by slug with ATS auto-detection
+- [x] `update-settings` — Toggle auto_submit, change rate_limit_seconds
+- [x] `update-responses` — Re-enter canned ATS answers (EEO, visa, work auth)
+- [x] `update-preferences` — Change target roles (with re-expansion), locations, salary, industries
+
 ## Future (v2+)
 - [ ] Ashby ATS support
 - [ ] Crunchbase API for richer company discovery
