@@ -16,6 +16,50 @@ from weasyprint import HTML
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "config" / "resume_template"
 
+_css_cache: str | None = None
+
+
+def _get_resume_css() -> str:
+    """Load and cache resume CSS (read from disk once)."""
+    global _css_cache
+    if _css_cache is None:
+        css_path = TEMPLATE_DIR / "resume.css"
+        _css_cache = css_path.read_text() if css_path.exists() else ""
+    return _css_cache
+
+
+# ATS-safe character mapping: smart typography → plain ASCII
+_ATS_CHAR_MAP = str.maketrans({
+    "\u2013": "-",      # en-dash
+    "\u2014": "-",      # em-dash
+    "\u2018": "'",      # left single quote
+    "\u2019": "'",      # right single quote
+    "\u201c": '"',      # left double quote
+    "\u201d": '"',      # right double quote
+    "\u2026": "...",    # ellipsis
+    "\u200b": "",       # zero-width space
+    "\u200c": "",       # zero-width non-joiner
+    "\u200d": "",       # zero-width joiner
+    "\ufeff": "",       # BOM / zero-width no-break space
+    "\u00a0": " ",      # non-breaking space
+})
+
+
+def normalize_ats_text(text: str) -> str:
+    """Replace smart typography and invisible Unicode with ATS-safe ASCII."""
+    return text.translate(_ATS_CHAR_MAP)
+
+
+def _normalize_resume_data(data):
+    """Recursively normalize all strings in a resume data structure."""
+    if isinstance(data, str):
+        return normalize_ats_text(data)
+    if isinstance(data, dict):
+        return {k: _normalize_resume_data(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_normalize_resume_data(item) for item in data]
+    return data
+
 
 def _render_contact(contact: dict) -> str:
     name = contact["name"]
@@ -144,8 +188,9 @@ SECTION_RENDERERS = {
 
 def render_resume_html(resume_data: dict) -> str:
     """Convert resume.json data into a full HTML document."""
-    css_path = TEMPLATE_DIR / "resume.css"
-    css = css_path.read_text() if css_path.exists() else ""
+    resume_data = _normalize_resume_data(resume_data)
+
+    css = _get_resume_css()
 
     contact_html = _render_contact(resume_data["contact"])
 

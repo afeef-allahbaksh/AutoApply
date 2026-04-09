@@ -8,7 +8,11 @@ from src.ats_greenhouse import fill_greenhouse_application
 from src.ats_lever import fill_lever_application
 from src.browser import get_browser_context
 from src.profile_loader import PROFILES_DIR, Profile
-from src.schemas import validate_applications
+from src.resume_optimizer import (
+    batch_select_projects, find_cached_resume, optimize_resume,
+    _optimization_hash, _slugify, save_tailored_resume, select_projects,
+)
+from src.schemas import validate_applications, validate_resume
 
 
 def _save_progress(profile_name: str, job: dict, fields_filled: list, custom_answers: list) -> str:
@@ -63,16 +67,31 @@ def apply_to_jobs(
     jobs: list[dict],
     resume_data: dict | None = None,
     headless: bool = False,
+    dry_run: bool = False,
 ) -> list[dict]:
     """Apply to a list of jobs using the appropriate ATS handler.
 
     Respects auto_submit and rate_limit_seconds from profile settings.
+    If dry_run=True, fills forms and takes screenshots but never submits.
     Returns list of application result dicts.
     """
-    auto_submit = profile.auto_submit
+    auto_submit = profile.auto_submit if not dry_run else False
     rate_limit = profile.rate_limit_seconds
     applications = list(profile.applications)
     results = []
+
+    # Validate resume once before the loop
+    if resume_data:
+        validate_resume(resume_data)
+
+    # Batch project selection for all jobs in one LLM call
+    project_selections = None
+    if resume_data and resume_data.get("project_pool") and len(resume_data["project_pool"]) > len(resume_data.get("projects", [])):
+        project_selections = batch_select_projects(resume_data, jobs)
+
+    # Pre-compute name slug for resume lookup
+    name_slug = _slugify(profile.data.get("name", ""))
+    resumes_dir = profile.profile_dir / "resumes"
 
     pw, browser, context = get_browser_context(headless=headless)
     page = context.new_page()
@@ -92,21 +111,47 @@ def apply_to_jobs(
                 results.append({"company": company, "role": role, "status": "skipped"})
                 continue
 
-            # Find tailored resume PDF if it exists
+            # Find tailored resume PDF — generate one if it doesn't exist
             resume_path = ""
-            resumes_dir = profile.profile_dir / "resumes"
             if resumes_dir.exists():
-                # Look for most recent matching resume
-                from src.resume_optimizer import _slugify
-                # Match by name_company or company_role (supports both naming conventions)
-                name_slug = _slugify(profile.data.get("name", ""))
                 matching = sorted(resumes_dir.glob(f"{name_slug}_{_slugify(company)}*.pdf"), reverse=True)
                 if not matching:
-                    # Fallback: old naming convention (company_role_date)
                     matching = sorted(resumes_dir.glob(f"{_slugify(company)}_{_slugify(role)}*.pdf"), reverse=True)
                 if matching:
                     resume_path = str(matching[0])
                     print(f"  Using tailored resume: {matching[0].name}")
+
+            # Auto-generate tailored resume if none found and base resume exists
+            if not resume_path and resume_data:
+                try:
+                    job_content = job.get("content", role)
+
+                    # Use batched project selection if available, else fall back to single call
+                    if project_selections and project_selections[i]["had_pool"]:
+                        selection = project_selections[i]
+                    else:
+                        selection = select_projects(resume_data, job_content)
+
+                    if selection["had_pool"]:
+                        print(f"  Selected projects: {', '.join(p['name'] for p in selection['projects'])}")
+                        tailored_base = {**resume_data, "projects": selection["projects"]}
+                    else:
+                        tailored_base = resume_data
+
+                    # Check cache before calling API
+                    cached = find_cached_resume(profile.profile_name, tailored_base, job_content, company)
+                    if cached:
+                        resume_path = cached["pdf"]
+                        print(f"  Using cached resume: {Path(resume_path).name}")
+                    else:
+                        print(f"  Generating tailored resume...")
+                        optimized = optimize_resume(tailored_base, job_content)
+                        opt_hash = _optimization_hash(tailored_base, job_content)
+                        paths = save_tailored_resume(profile.profile_name, optimized, company, role, optimization_hash=opt_hash)
+                        resume_path = paths["pdf"]
+                        print(f"  Saved: {Path(resume_path).name}")
+                except Exception as e:
+                    print(f"  Warning: Could not generate tailored resume: {e}")
 
             # Fill the form
             if ats == "greenhouse":
@@ -177,7 +222,7 @@ def apply_to_jobs(
                     )
                     print(f"  Progress saved: {progress_path}")
 
-                    applications.append({
+                    fail_entry = {
                         "company": company,
                         "role": role,
                         "posting_url": posting_url,
@@ -185,7 +230,11 @@ def apply_to_jobs(
                         "status": "failed",
                         "ats": ats,
                         "error": fill_result.get("error") or error_msg,
-                    })
+                    }
+                    if job.get("fit_score") is not None:
+                        fail_entry["fit_score"] = job["fit_score"]
+                        fail_entry["fit_rationale"] = job.get("fit_rationale", "")
+                    applications.append(fail_entry)
                     _save_applications(profile.profile_name, applications)
                     results.append({"company": company, "role": role, "status": "failed"})
                     continue
@@ -197,6 +246,16 @@ def apply_to_jobs(
             # Screenshot for review
             screenshot = _take_screenshot(page, profile.profile_name, company, role)
             print(f"  Screenshot: {screenshot}")
+
+            if dry_run:
+                print(f"  [DRY RUN] Form filled — not submitting")
+                results.append({"company": company, "role": role, "status": "dry_run"})
+                if i < len(jobs) - 1:
+                    jitter = random.uniform(0.5, 1.5)
+                    delay = rate_limit * jitter
+                    print(f"  Waiting {delay:.0f}s before next application...")
+                    time.sleep(delay)
+                continue
 
             if auto_submit:
                 # Submit the form
@@ -257,6 +316,9 @@ def apply_to_jobs(
             }
             if resume_path:
                 app_entry["tailored_resume_path"] = resume_path
+            if job.get("fit_score") is not None:
+                app_entry["fit_score"] = job["fit_score"]
+                app_entry["fit_rationale"] = job.get("fit_rationale", "")
             applications.append(app_entry)
             _save_applications(profile.profile_name, applications)
             results.append({"company": company, "role": role, "status": status})

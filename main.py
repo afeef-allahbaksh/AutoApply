@@ -7,7 +7,10 @@ from src.discovery import discover_companies
 from src.job_discovery import discover_jobs
 from src.profile_loader import Profile, ProfileLoadError
 from src.resume_diff import diff_resumes
-from src.resume_optimizer import optimize_resume, save_tailored_resume, select_projects
+from src.resume_optimizer import (
+    find_cached_resume, optimize_resume, _optimization_hash,
+    save_tailored_resume, select_projects,
+)
 from src.resume_parser import parse_pdf_to_resume
 from src.schemas import validate_resume
 
@@ -35,6 +38,10 @@ def main():
     )
     parser.add_argument(
         "--headless", action="store_true", help="Run browser in headless mode (for apply)",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", dest="dry_run",
+        help="Fill forms and screenshot but never submit (for apply)",
     )
 
     args = parser.parse_args()
@@ -76,8 +83,13 @@ def main():
         if jobs:
             print(f"\nTop matches:")
             for j in jobs[:10]:
-                print(f"  [{j['relevance_score']:5.1f}] {j['company']:15s} | {j['title']}")
+                fit = j.get("fit_score")
+                marker = "[!] " if fit is not None and fit < 3 else ""
+                fit_str = f"{fit}/5 | " if fit is not None else ""
+                print(f"  {marker}[{fit_str}{j['relevance_score']:5.1f}] {j['company']:15s} | {j['title']}")
                 print(f"         {j['location']}")
+                if j.get("fit_rationale"):
+                    print(f"         Fit: {j['fit_rationale']}")
                 print(f"         {j['posting_url']}")
             if len(jobs) > 10:
                 print(f"\n  ... and {len(jobs) - 10} more (see jobs.json)")
@@ -375,18 +387,27 @@ def main():
             tailored_base = base_resume
             selection = None
 
-        # Optimize
-        print("\nTailoring resume...")
-        optimized = optimize_resume(tailored_base, job_content)
+        # Check cache
+        cached = find_cached_resume(args.profile, tailored_base, job_content, job["company"])
+        if cached:
+            print(f"\nUsing cached resume (same resume+JD combo):")
+            print(f"  JSON: {cached['json']}")
+            print(f"  PDF:  {cached['pdf']}")
+            print("  (Run with different base resume or JD to regenerate)")
+        else:
+            # Optimize
+            print("\nTailoring resume...")
+            optimized = optimize_resume(tailored_base, job_content)
 
-        # Show diff
-        print(f"\n{diff_resumes(tailored_base, optimized, project_selection=selection)}")
+            # Show diff
+            print(f"\n{diff_resumes(tailored_base, optimized, project_selection=selection)}")
 
-        # Save
-        paths = save_tailored_resume(args.profile, optimized, job["company"], job["title"])
-        print(f"\nSaved tailored resume:")
-        print(f"  JSON: {paths['json']}")
-        print(f"  PDF:  {paths['pdf']}")
+            # Save
+            opt_hash = _optimization_hash(tailored_base, job_content)
+            paths = save_tailored_resume(args.profile, optimized, job["company"], job["title"], optimization_hash=opt_hash)
+            print(f"\nSaved tailored resume:")
+            print(f"  JSON: {paths['json']}")
+            print(f"  PDF:  {paths['pdf']}")
     elif args.command == "apply":
         from src.applicant import apply_to_jobs
 
@@ -412,22 +433,30 @@ def main():
             with open(resume_path) as f:
                 resume_data = json.load(f)
 
-        print(f"\nApplying to {len(jobs)} job(s)...")
-        if not profile.auto_submit:
-            print("(auto_submit is off — you'll be prompted to review each application)")
+        if args.dry_run:
+            print(f"\n[DRY RUN] Filling {len(jobs)} job(s) without submitting...")
+        else:
+            print(f"\nApplying to {len(jobs)} job(s)...")
+            if not profile.auto_submit:
+                print("(auto_submit is off — you'll be prompted to review each application)")
 
         results = apply_to_jobs(
             profile=profile,
             jobs=jobs,
             resume_data=resume_data,
             headless=args.headless,
+            dry_run=args.dry_run,
         )
 
         # Summary
         applied = sum(1 for r in results if r["status"] == "applied")
         failed = sum(1 for r in results if r["status"] == "failed")
         skipped = sum(1 for r in results if r["status"] == "skipped")
-        print(f"\nDone: {applied} applied, {failed} failed, {skipped} skipped")
+        dry = sum(1 for r in results if r["status"] == "dry_run")
+        if dry:
+            print(f"\nDry run complete: {dry} forms filled, {failed} failed, {skipped} skipped")
+        else:
+            print(f"\nDone: {applied} applied, {failed} failed, {skipped} skipped")
 
     elif args.command == "run":
         from src.pipeline import run_pipeline
@@ -437,10 +466,18 @@ def main():
         if not profile.applications:
             print("\nNo applications on file.")
         else:
-            print(f"\n{'Status':<17} {'Company':<20} {'Role':<35} {'Date'}")
-            print("-" * 85)
-            for app in profile.applications:
-                print(f"  {app['status']:<15} {app['company']:<20} {app['role']:<35} {app['date']}")
+            has_fit = any(a.get("fit_score") is not None for a in profile.applications)
+            if has_fit:
+                print(f"\n{'Status':<17} {'Fit':<6} {'Company':<20} {'Role':<35} {'Date'}")
+                print("-" * 91)
+                for app in profile.applications:
+                    fit = f"{app['fit_score']}/5" if app.get("fit_score") is not None else "  -"
+                    print(f"  {app['status']:<15} {fit:<5} {app['company']:<20} {app['role']:<35} {app['date']}")
+            else:
+                print(f"\n{'Status':<17} {'Company':<20} {'Role':<35} {'Date'}")
+                print("-" * 85)
+                for app in profile.applications:
+                    print(f"  {app['status']:<15} {app['company']:<20} {app['role']:<35} {app['date']}")
 
     else:
         print(f"\nCommand '{args.command}' is not yet implemented.")

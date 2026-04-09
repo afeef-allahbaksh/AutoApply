@@ -35,6 +35,14 @@
       },
       "error": {
         "type": "string"
+      },
+      "fit_score": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 5
+      },
+      "fit_rationale": {
+        "type": "string"
       }
     },
     "additionalProperties": false

@@ -1,12 +1,13 @@
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 
 import requests
 
 from src.api import create_message
 from src.profile_loader import PROFILES_DIR
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
 
 GREENHOUSE_JOBS_API = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
 LEVER_JOBS_API = "https://api.lever.co/v0/postings/{slug}"
@@ -149,7 +150,7 @@ def classify_jobs_by_level(jobs: list[dict], experience_levels: list[str]) -> li
     for i, job in enumerate(jobs):
         desc = job.get("content", "")
         # Strip HTML tags for a clean snippet
-        clean = re.sub(r"<[^>]+>", " ", desc).strip()
+        clean = _HTML_TAG_RE.sub(" ", desc).strip()
         snippet = clean[:150] + "..." if len(clean) > 150 else clean
         entries.append(f"{i}: {job['title']} | {snippet}" if snippet else f"{i}: {job['title']}")
 
@@ -185,6 +186,90 @@ Rules:
         return jobs
 
     return [job for i, job in enumerate(jobs) if i in matching_indices]
+
+
+def score_jobs_fit(jobs: list[dict], resume_data: dict) -> list[dict]:
+    """Use a single LLM call to score how well each job fits the candidate's resume.
+
+    Attaches fit_score (1-5) and fit_rationale to each job dict.
+    Returns the jobs list with scores added.
+    """
+    if not jobs:
+        return jobs
+
+    # Build candidate summary from resume
+    contact = resume_data.get("contact", {})
+    skills_list = []
+    for group in resume_data.get("skills", []):
+        skills_list.extend(group.get("items", []))
+    experience_summary = [
+        f"{exp['title']} at {exp['company']}" for exp in resume_data.get("experience", [])
+    ]
+    education_summary = [
+        f"{edu['degree']} {edu.get('field', '')} — {edu['institution']}"
+        for edu in resume_data.get("education", [])
+    ]
+
+    candidate = (
+        f"Name: {contact.get('name', 'Unknown')}\n"
+        f"Skills: {', '.join(skills_list[:30])}\n"
+        f"Experience: {'; '.join(experience_summary)}\n"
+        f"Education: {'; '.join(education_summary)}"
+    )
+
+    # Build job entries with snippets
+    entries = []
+    for i, job in enumerate(jobs):
+        desc = job.get("content", "")
+        clean = _HTML_TAG_RE.sub(" ", desc).strip()
+        snippet = clean[:150] + "..." if len(clean) > 150 else clean
+        entries.append(f"{i}: {job['title']} at {job['company']} | {snippet}")
+
+    prompt = f"""You are a job fit evaluator. Given a candidate's profile and a list of job postings, score how well the candidate fits each job.
+
+Candidate profile:
+{candidate}
+
+Jobs (index: title at company | description snippet):
+{chr(10).join(entries)}
+
+Score each job on a 1-5 scale:
+5 = Excellent fit — skills and experience directly match
+4 = Good fit — most requirements met
+3 = Moderate fit — some overlap but gaps exist
+2 = Weak fit — limited relevance
+1 = Poor fit — unrelated
+
+Return ONLY a JSON array, no markdown fences:
+[{{"index": 0, "score": 4, "rationale": "Strong match..."}}, ...]"""
+
+    message = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    raw = message.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1]
+        raw = raw.rsplit("```", 1)[0]
+
+    try:
+        scores = json.loads(raw)
+        score_map = {s["index"]: s for s in scores}
+        for i, job in enumerate(jobs):
+            if i in score_map:
+                job["fit_score"] = score_map[i]["score"]
+                job["fit_rationale"] = score_map[i].get("rationale", "")
+            else:
+                job["fit_score"] = 3.0
+                job["fit_rationale"] = "Scoring unavailable"
+    except (json.JSONDecodeError, TypeError, KeyError):
+        for job in jobs:
+            job["fit_score"] = 3.0
+            job["fit_rationale"] = "Scoring unavailable"
+
+    return jobs
 
 
 def deduplicate_jobs(jobs: list[dict], applications: list[dict]) -> list[dict]:
@@ -273,6 +358,19 @@ def discover_jobs(profile_name: str) -> list[dict]:
     new_jobs = deduplicate_jobs(matched, applications)
     print(f"  {len(new_jobs)} new jobs (after dedup)")
 
+    # Fit scoring
+    resume_path = profile_dir / "resume.json"
+    if new_jobs and resume_path.exists():
+        with open(resume_path) as f:
+            resume_data = json.load(f)
+        print(f"  Scoring {len(new_jobs)} jobs for fit (~$0.01)...")
+        new_jobs = score_jobs_fit(new_jobs, resume_data)
+        excellent_good = sum(1 for j in new_jobs if j.get("fit_score", 3) >= 4)
+        moderate = sum(1 for j in new_jobs if j.get("fit_score", 3) == 3)
+        weak_poor = sum(1 for j in new_jobs if j.get("fit_score", 3) < 3)
+        print(f"  Fit scores: {excellent_good} excellent/good, {moderate} moderate, {weak_poor} weak/poor")
+        new_jobs.sort(key=lambda j: (j.get("fit_score", 3), j.get("relevance_score", 0)), reverse=True)
+
     # Save to jobs.json
     jobs_path = profile_dir / "jobs.json"
     with open(jobs_path, "w") as f:
@@ -298,6 +396,19 @@ def fetch_lever_jobs(slug: str) -> list[dict]:
     jobs = []
     for raw in data:
         categories = raw.get("categories", {})
+
+        # Build richer content from multiple Lever fields
+        content_parts = [raw.get("descriptionPlain", "")]
+        for lst in raw.get("lists", []):
+            if lst.get("text"):
+                content_parts.append(lst["text"])
+            if lst.get("content"):
+                # Strip HTML from list content
+                content_parts.append(_HTML_TAG_RE.sub(" ", lst["content"]))
+        commitment = categories.get("commitment", "")
+        if commitment:
+            content_parts.append(f"Commitment: {commitment}")
+
         jobs.append({
             "id": raw["id"],
             "title": raw.get("text", ""),
@@ -307,6 +418,6 @@ def fetch_lever_jobs(slug: str) -> list[dict]:
             "posting_url": raw.get("hostedUrl", ""),
             "ats": "lever",
             "slug": slug,
-            "content": raw.get("descriptionPlain", ""),
+            "content": "\n\n".join(part for part in content_parts if part),
         })
     return jobs
