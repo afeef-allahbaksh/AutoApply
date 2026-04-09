@@ -519,12 +519,14 @@ def _answer_custom_question(
 
     message = create_message(
         model="claude-sonnet-4-20250514",
-        max_tokens=500,
+        max_tokens=300,
         messages=[{
             "role": "user",
             "content": f"""Answer this job application question using the applicant's real data below.
 
-Question: {question_text}
+The question text may include section headers, subtitles, or surrounding UI text scraped from the form. Identify the ACTUAL question being asked and answer ONLY that. Ignore decorative headings like "Personal Preferences", "Additional Information", etc.
+
+Question (may include surrounding text): {question_text}
 
 Applicant data:
 {context}
@@ -533,17 +535,26 @@ Job description:
 {job_content[:2000]}
 
 Rules:
-- Use EXACT data from the applicant profile — never guess or fabricate URLs, names, dates, GPAs, etc.
-- For URL/link fields (website, portfolio, LinkedIn, GitHub), return ONLY the bare URL — no explanation, no text, just the URL
-- For yes/no confirmation questions (e.g. "Can you confirm...?", "Are you...?", "Do you...?", "Will you...?"), return ONLY "Yes" or "No"
-- For factual questions (university, GPA, graduation date), return just the value
-- For open-ended questions, answer in 2-4 sentences using the applicant's real experience
+- BE CONCISE. Give the shortest accurate answer possible. A human filling this form would write brief answers, not essays.
+- For dates (start date, availability, graduation): return ONLY the date (e.g. "June 2026")
+- For yes/no questions: return ONLY "Yes" or "No"
+- For factual questions (name pronunciation, university, GPA, location): return ONLY the fact
+- For URL/link fields: return ONLY the bare URL
+- For open-ended questions: answer in 1-2 sentences MAX. Be direct, no filler.
+- Use EXACT data from the applicant profile — never fabricate
 - If the question matches a pre-set response, use that exact value
-- NEVER explain that data is missing — if you don't have the answer, return an empty string
+- Do NOT mention being excited, passionate, or enthusiastic — sounds like AI
+- Do NOT reference the job description or company name unless the question specifically asks about it
+- If the text is not a real question, or you don't have the data to answer, return ONLY the single word SKIP — nothing else
+- NEVER explain why you can't answer. NEVER say "I don't see a question". Just return SKIP.
 - Return ONLY the answer text, no quotes or labels""",
         }],
     )
-    return message.content[0].text.strip()
+    result = message.content[0].text.strip()
+    # Treat SKIP signal as empty — caller will skip filling the field
+    if result.upper() == "SKIP":
+        return ""
+    return result
 
 
 def _answer_select_question(
@@ -586,6 +597,52 @@ Rules:
     return message.content[0].text.strip()
 
 
+def _get_question_text(page: Page, q, q_id: str) -> str:
+    """Extract the actual question text for a form field.
+
+    Greenhouse forms have a pattern where the label can be a section header
+    (e.g. "(Optional) Personal Preferences") and the real question is in a
+    description div (e.g. "How do you pronounce your name?"). This function
+    checks the description div first, then falls back to the label.
+    """
+    label_text = ""
+    description_text = ""
+
+    # Get label text
+    label_el = page.locator(f'label[for="{q_id}"]')
+    if label_el.count() > 0:
+        label_text = label_el.first.inner_text().strip()
+    else:
+        parent = q.locator("..").first
+        label_text = parent.inner_text().strip()[:200]
+
+    # Check for a description div (contains the real question when label is a section header)
+    if q_id:
+        desc_el = page.locator(f'#{q_id}-description')
+        if desc_el.count() > 0:
+            try:
+                description_text = desc_el.first.inner_text().strip()
+            except Exception:
+                pass
+
+    # If description has a question and label looks like a section header, use description
+    if description_text and label_text:
+        # Section headers tend to be vague labels without a question mark
+        label_lower = label_text.lower()
+        is_section_header = any(kw in label_lower for kw in [
+            "personal preference", "additional info", "optional",
+            "supplemental", "general info",
+        ]) and "?" not in label_text
+        if is_section_header:
+            return description_text
+
+    # Combine label + description for full context if both are meaningful
+    if description_text and label_text:
+        return f"{label_text}: {description_text}"
+
+    return label_text or description_text
+
+
 def _handle_custom_questions(
     page: Page,
     responses: dict,
@@ -603,16 +660,8 @@ def _handle_custom_questions(
 
     for q in questions:
         try:
-            # Get the question label
             q_id = q.get_attribute("id") or ""
-            parent = q.locator("..").first
-
-            # Try to find associated label
-            label_el = page.locator(f'label[for="{q_id}"]')
-            if label_el.count() > 0:
-                label_text = label_el.first.inner_text().strip()
-            else:
-                label_text = parent.inner_text().strip()[:200]
+            label_text = _get_question_text(page, q, q_id)
 
             if not label_text:
                 continue
@@ -686,18 +735,30 @@ def _handle_custom_questions(
 
             elif tag in ("input", "textarea") and q.get_attribute("type") != "file":
                 is_required = q.get_attribute("aria-required") == "true"
+                if answer is None and not is_required:
+                    # Always skip — purely personal, no impact on application
+                    always_skip = ["pronounce", "preference", "pronoun", "nickname"]
+                    if any(kw in label_lower for kw in always_skip):
+                        continue
+
+                    # Skip only if user doesn't have the data
+                    url_keywords = ["website", "portfolio", "personal site", "blog",
+                                    "publication", "scholar"]
+                    if any(kw in label_lower for kw in url_keywords) and not profile_data.get("website"):
+                        continue
+                    referral_keywords = ["referral", "referred by", "how did you hear"]
+                    if any(kw in label_lower for kw in referral_keywords) and not responses.get("referral"):
+                        continue
+
                 if answer is None:
-                    # Skip optional fields that ask for data the user doesn't have
-                    if not is_required:
-                        # Check if this is asking for a specific URL/profile the user lacks
-                        skip_keywords = ["website", "portfolio", "personal site", "blog"]
-                        if any(kw in label_lower for kw in skip_keywords) and not profile_data.get("website"):
-                            continue
                     answer = _answer_custom_question(
                         label_text, job_content, profile_data,
                         resume_data=resume_data, responses=responses,
                     )
                     method = "claude"
+                # Skip if answer is empty or model punted — don't fill garbage into the field
+                if not answer or not answer.strip():
+                    continue
                 q.fill(answer)
                 answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
 

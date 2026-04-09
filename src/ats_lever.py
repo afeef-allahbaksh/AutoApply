@@ -66,12 +66,14 @@ def _answer_custom_question(
 
     message = create_message(
         model="claude-sonnet-4-20250514",
-        max_tokens=500,
+        max_tokens=300,
         messages=[{
             "role": "user",
             "content": f"""Answer this job application question using the applicant's real data below.
 
-Question: {question_text}
+The question text may include section headers, subtitles, or surrounding UI text scraped from the form. Identify the ACTUAL question being asked and answer ONLY that. Ignore decorative headings like "Personal Preferences", "Additional Information", etc.
+
+Question (may include surrounding text): {question_text}
 
 Applicant data:
 {context}
@@ -80,17 +82,25 @@ Job description:
 {job_content[:2000]}
 
 Rules:
-- Use EXACT data from the applicant profile — never guess or fabricate URLs, names, dates, GPAs, etc.
-- For URL/link fields (website, portfolio, LinkedIn, GitHub), return ONLY the bare URL — no explanation, no text, just the URL
-- For yes/no confirmation questions (e.g. "Can you confirm...?", "Are you...?", "Do you...?", "Will you...?"), return ONLY "Yes" or "No"
-- For factual questions (university, GPA, graduation date), return just the value
-- For open-ended questions, answer in 2-4 sentences using the applicant's real experience
+- BE CONCISE. Give the shortest accurate answer possible. A human filling this form would write brief answers, not essays.
+- For dates (start date, availability, graduation): return ONLY the date (e.g. "June 2026")
+- For yes/no questions: return ONLY "Yes" or "No"
+- For factual questions (name pronunciation, university, GPA, location): return ONLY the fact
+- For URL/link fields: return ONLY the bare URL
+- For open-ended questions: answer in 1-2 sentences MAX. Be direct, no filler.
+- Use EXACT data from the applicant profile — never fabricate
 - If the question matches a pre-set response, use that exact value
-- NEVER explain that data is missing — if you don't have the answer, return an empty string
+- Do NOT mention being excited, passionate, or enthusiastic — sounds like AI
+- Do NOT reference the job description or company name unless the question specifically asks about it
+- If the text is not a real question, or you don't have the data to answer, return ONLY the single word SKIP — nothing else
+- NEVER explain why you can't answer. NEVER say "I don't see a question". Just return SKIP.
 - Return ONLY the answer text, no quotes or labels""",
         }],
     )
-    return message.content[0].text.strip()
+    result = message.content[0].text.strip()
+    if result.upper() == "SKIP":
+        return ""
+    return result
 
 
 def _handle_custom_fields(
@@ -149,6 +159,8 @@ def _handle_custom_fields(
                     )
                     method = "claude"
 
+                if not answer or not answer.strip():
+                    continue
                 el.fill(answer)
                 answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
 
