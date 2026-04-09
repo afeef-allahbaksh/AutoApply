@@ -106,6 +106,34 @@
 - [x] `update-responses` — Re-enter canned ATS answers (EEO, visa, work auth)
 - [x] `update-preferences` — Change target roles (with re-expansion), locations, salary, industries
 
+## Phase 13: Job Fit Scoring, ATS Normalization & Keyword Optimization
+- [x] ATS Unicode normalization — `normalize_ats_text()` replaces smart typography with ASCII before PDF render
+- [x] Recursive `_normalize_resume_data()` walker applied at top of `render_resume_html()`
+- [x] Keyword extraction — optimizer prompt restructured into two phases (extract keywords, then optimize)
+- [x] Response format `{"keywords": [...], "resume": {...}}` with old-format fallback
+- [x] `score_jobs_fit()` — batched LLM call scoring jobs 1-5 against candidate resume
+- [x] Fit scoring integrated into `discover_jobs()` after dedup, before save
+- [x] Display updates in `main.py` and `pipeline.py` — fit score, rationale, `[!]` warning for low-fit
+- [x] Schema update — `fit_score` and `fit_rationale` added to `applications_schema.json`
+- [x] Application logging — fit data propagated to both success and failure entries in `applicant.py`
+
+## Phase 14: Caching, Batching & Performance
+- [x] Resume optimization caching — sha256 hash of (resume + JD) skips redundant API calls
+- [x] `find_cached_resume()` integrated in optimize, apply, and pipeline commands
+- [x] `batch_select_projects()` — single LLM call for multi-job project selection
+- [x] Batched selection in pipeline.py and applicant.py apply loop
+- [x] Dry run mode — `apply --dry-run` fills forms without submitting or logging
+- [x] `--dry-run` CLI flag with separate summary output
+- [x] Pre-compiled HTML tag regex (`_HTML_TAG_RE`) in job_discovery.py
+- [x] CSS cached at module level in resume_renderer.py (read once per process)
+- [x] `validate_resume()` moved outside apply loop (validate once, not per-job)
+- [x] `_slugify` import moved to top-level in applicant.py
+- [x] Lever content enrichment — `lists` and `commitment` fields added to job content
+- [x] Jobs sorted by (fit_score, relevance_score) after scoring
+- [x] Skip weak-fit jobs prompt in pipeline mode
+- [x] Fit score column in history command
+- [x] Removed unused imports (os, date from resume_optimizer; Path from job_discovery)
+
 ## Future (v2+)
 - [ ] Ashby ATS support
 - [ ] Crunchbase API for richer company discovery

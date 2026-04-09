@@ -8,14 +8,15 @@ A fully automated job application pipeline — one cohesive project with six sta
 
 1. **Company discovery** — Find companies using Greenhouse/Lever, detect their ATS, build a targetable companies.json
 2. **Job discovery** — Query those companies' job boards for open roles matching the user's preferences (parallelized with ThreadPoolExecutor)
-3. **Project selection** — If the resume has a `project_pool`, Claude picks the most relevant projects per job (maintains one-page format)
-4. **Resume optimization** — Tailor the resume per job using Claude API, show a diff of changes (including project selection reasoning), render to PDF
-5. **Auto-apply** — Fill out and submit applications via Playwright, log everything to application history
-6. **History & logging** — Track all applications with dedup, status tracking, screenshots
+3. **Job fit scoring** — After dedup, a batched LLM call scores each job 1-5 against the candidate's resume. Low-fit jobs flagged with `[!]` in display
+4. **Project selection** — If the resume has a `project_pool`, Claude picks the most relevant projects per job (maintains one-page format)
+5. **Resume optimization** — Extract JD keywords first, then tailor the resume incorporating them. ATS-safe Unicode normalization before PDF rendering
+6. **Auto-apply** — Fill out and submit applications via Playwright, log everything (including fit scores) to application history
+7. **History & logging** — Track all applications with dedup, status tracking, screenshots, fit scores
 
 ## Full pipeline mental model
 ```
-Profile → Discover Companies → Find Open Roles → Select Projects → Optimize Resume → Apply → Log
+Profile → Discover Companies → Find Open Roles → Score Fit → Select Projects → Optimize Resume (keywords + ATS normalization) → Apply → Log
 ```
 
 ## Profiles system
@@ -127,6 +128,14 @@ Users can add companies via `add-company` command (auto-detects ATS from slug). 
 - Error recovery: save Playwright progress state so failed applications can be retried
 - Tailored resumes named `{name}_{company}.pdf` for easy identification
 - Workday deprioritized — inconsistent per company, tackle later
+- ATS Unicode normalization — smart quotes, em dashes, zero-width chars replaced with ASCII before PDF render
+- Resume optimization extracts JD keywords first, then incorporates them (two-phase prompt, single API call)
+- Job fit scoring — batched LLM call after dedup scores jobs 1-5 against resume; scores stored in jobs.json and applications.json
+- Resume optimization caching — sha256 hash of (resume + JD) stored in tailored JSON; skips API call on re-run with same inputs
+- Batch project selection — `batch_select_projects()` for multi-job runs; single `select_projects()` for one-off optimize
+- Dry run mode — `apply --dry-run` fills forms without submitting or logging
+- Lever content enrichment — `fetch_lever_jobs()` pulls from `lists`, `commitment` fields in addition to `descriptionPlain`
+- CSS cached at module level in resume renderer — read from disk once per process
 
 ## Priority build order
 1. ~~Profiles system + profile.json + responses.json schema~~ (done)

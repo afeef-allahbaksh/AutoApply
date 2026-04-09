@@ -1,8 +1,8 @@
 # CLAUDE.md — AutoApply
 
 ## Project
-Fully automated job application pipeline. Six stages in sequence:
-Profile → Discover Companies → Find Open Roles → Select Projects → Optimize Resume → Apply → Log
+Fully automated job application pipeline. Seven stages in sequence:
+Profile → Discover Companies → Find Open Roles → Score Fit → Select Projects → Optimize Resume → Apply → Log
 
 Python backend, Playwright for browser automation, Claude API (via shared singleton client with retry) for resume optimization, project selection, and custom question answering. CLI only for v1.
 
@@ -12,6 +12,12 @@ Python backend, Playwright for browser automation, Claude API (via shared single
 - **Project pool** — Resume can have a `project_pool` array with all available projects. The optimizer picks the best N (matching current project count) per job to maintain one-page format
 - **ATS form handling** — Greenhouse uses React Select comboboxes (click→type→pick option pattern) for degree, school, and some custom questions. Date fields use `input[type="number"]` with direct ID targeting (`#start-year--{i}`)
 - **Resume naming** — Tailored resumes saved as `{name}_{company}.pdf` (e.g., `john_doe_anthropic.pdf`)
+- **ATS normalization** — `resume_renderer.py` normalizes smart typography (curly quotes, em dashes, ellipses, zero-width chars) to plain ASCII before PDF rendering so ATS parsers can read keywords
+- **Keyword extraction** — Resume optimizer extracts 10-15 JD keywords in a first pass, then weaves them into the resume. Response format: `{"keywords": [...], "resume": {...}}`
+- **Job fit scoring** — After dedup, `score_jobs_fit()` uses a batched LLM call to rate each job 1-5 against the candidate's resume. Scores/rationales stored in `jobs.json` and propagated to `applications.json`
+- **Optimization caching** — `save_tailored_resume()` stores a sha256 hash of (resume + JD). `find_cached_resume()` checks hash before calling the API, skipping redundant optimization calls
+- **Batch project selection** — `batch_select_projects()` selects projects for multiple jobs in one LLM call. Used in pipeline and apply loops; `select_projects()` still used for single-job optimize command
+- **Dry run mode** — `apply --dry-run` fills forms and takes screenshots but never submits or logs to applications.json
 
 ## Planning
 - Enter plan mode for any non-trivial task (3+ steps or architectural decisions)
@@ -37,7 +43,7 @@ Python backend, Playwright for browser automation, Claude API (via shared single
 ## Self-Improvement
 - After user corrections: update `tasks/lessons.md` with the pattern and prevention rules
 - Review `tasks/lessons.md` at the start of each session
-- Keep `tasks/lessons.md` under 30 items — consolidate when it grows past that
+- Keep tasks/lessons.md under 30 items — when it exceeds 30, consolidate related lessons into higher-level principles before adding new ones
 
 ## Subagents
 - Use for research, exploration, and parallel analysis to keep main context clean
