@@ -5,15 +5,16 @@ A fully automated job application pipeline that discovers relevant job postings,
 ## How It Works
 
 ```
-Profile -> Discover Companies -> Find Open Roles -> Select Projects -> Optimize Resume -> Apply -> Log
+Profile -> Discover Companies -> Find Open Roles -> Score Fit -> Select Projects -> Optimize Resume -> Apply -> Log
 ```
 
 1. **Company Discovery** — Validates company slugs against Greenhouse and Lever public APIs in parallel, builds a targetable registry
 2. **Job Discovery** — Queries each company's job board in parallel, filters by LLM-expanded role keywords and location preferences, scores by relevance, deduplicates against application history
-3. **Project Selection** — If your resume has a project pool, Claude picks the most relevant projects for each specific role (maintains your one-page format)
-4. **Resume Optimization** — Takes your structured resume + a job description, rewrites bullet points to mirror JD language, reorders skills by relevance, preserves all metrics and facts, renders a tailored PDF
-5. **Auto-Apply** — Playwright navigates to each application page, fills standard fields (including React Select comboboxes), uploads your tailored resume, answers custom questions using canned responses or Claude API, pauses for review or auto-submits
-6. **History & Logging** — Every application is logged with status tracking, screenshots, and deduplication
+3. **Job Fit Scoring** — Batched LLM call scores each job 1-5 against your resume. Low-fit jobs are flagged, and you can skip them in pipeline mode
+4. **Project Selection** — If your resume has a project pool, Claude picks the most relevant projects for each specific role (batched for multi-job runs, maintains your one-page format)
+5. **Resume Optimization** — Extracts 10-15 keywords from the JD, then tailors bullet points to incorporate them. ATS-safe Unicode normalization ensures parsers can read your resume. Results are cached to skip redundant API calls on re-runs
+6. **Auto-Apply** — Playwright navigates to each application page, fills standard fields (including React Select comboboxes), uploads your tailored resume, answers custom questions using canned responses or Claude API, pauses for review or auto-submits
+7. **History & Logging** — Every application is logged with status, fit scores, screenshots, and deduplication
 
 ## Architecture
 
@@ -27,10 +28,10 @@ src/
   profile_loader.py             # Profile loading + validation
   schemas.py                    # JSON schema validators
   discovery.py                  # Company discovery (parallelized, Greenhouse/Lever API)
-  job_discovery.py              # Job fetching, filtering, scoring, dedup (parallelized)
+  job_discovery.py              # Job fetching, filtering, fit scoring, dedup (parallelized)
   resume_parser.py              # PDF -> structured JSON via Claude API
-  resume_optimizer.py           # Resume tailoring + project selection per job
-  resume_renderer.py            # JSON -> PDF via WeasyPrint
+  resume_optimizer.py           # Resume tailoring, keyword extraction, project selection, caching
+  resume_renderer.py            # JSON -> PDF via WeasyPrint (ATS-safe Unicode normalization)
   resume_diff.py                # Human-readable resume change diffs (with project selection reasoning)
   cover_letter.py               # Cover letter generation
   browser.py                    # Playwright browser management
@@ -111,6 +112,8 @@ python main.py --profile yourname optimize --job 0                  # Tailor res
 # Application
 python main.py --profile yourname apply --job 0                     # Apply to a specific job
 python main.py --profile yourname apply                             # Apply to all matched jobs
+python main.py --profile yourname apply --dry-run                   # Fill forms without submitting
+python main.py --profile yourname apply --headless                  # Run browser in headless mode
 python main.py --profile yourname history                           # View application history
 
 # Profile management
@@ -123,12 +126,15 @@ python main.py --profile yourname update-responses    # Update canned ATS answer
 
 Resumes are stored as structured JSON — not as PDFs. This makes them programmatically editable and diffable. The optimizer:
 
-- **Selects the best projects** from your project pool for each specific role (if you have one)
-- Rewrites bullet points to mirror the job description's language
+- **Extracts 10-15 keywords** from the job description before optimizing
+- **Selects the best projects** from your project pool for each specific role (batched for multi-job runs)
+- Rewrites bullet points to incorporate extracted JD keywords naturally
 - Reorders skills to surface the most relevant ones first
 - Adds plausible skills from the JD that the candidate likely has
 - Preserves all metrics, company names, dates, and factual claims
+- **ATS-safe normalization** — replaces smart quotes, em dashes, and invisible Unicode with plain ASCII
 - Shows a diff of every change before saving (including project selection reasoning)
+- **Caches results** — re-running optimize on the same resume+JD combo skips the API call
 - Renders a clean PDF per application via an HTML/CSS template
 
 The resume schema is fully dynamic — different users can have different section layouts (`skills -> experience -> projects -> education` vs `summary -> experience -> education -> skills`), and `section_order` controls what renders and in what order.
@@ -170,11 +176,15 @@ With `auto_submit: false` (default):
 3. Fills all fields and uploads your tailored resume
 4. Takes a screenshot for your records
 5. Pauses and asks: `Submit? (y/n/q)`
-6. Logs the result to `applications.json`
+6. Logs the result (with fit score) to `applications.json`
 
 With `auto_submit: true`:
 - Same flow but submits automatically and moves to the next job
 - Rate-limited with configurable delay + randomized jitter
+
+With `--dry-run`:
+- Fills forms and takes screenshots but never submits
+- Does not log to `applications.json` — safe for testing new companies
 
 ## Cost
 
@@ -186,12 +196,13 @@ Designed to minimize API spend — LLM calls only happen where they add real val
 | Role keyword expansion | ~$0.005 | One-time during setup |
 | Resume import (PDF parse) | ~$0.01 | One-time per resume |
 | Company/job discovery | $0 | Public APIs, no auth |
-| Project selection | ~$0.005/job | Only when project pool exists |
-| Resume optimization | ~$0.02/job | Per application |
+| Job fit scoring | ~$0.01/batch | One call per discover-jobs run |
+| Project selection | ~$0.005/job (single) or ~$0.01/batch | Batched in pipeline/apply, single for optimize |
+| Resume optimization | ~$0.02/job | Per application (cached — free on re-run) |
 | Custom question answering | ~$0.005/question | Only when no canned response matches |
 | Cover letter generation | ~$0.01/letter | Only when form requires it |
 
-Applying to 10 jobs with resume optimization costs roughly $0.20-0.35 total.
+Applying to 10 jobs with fit scoring + resume optimization costs roughly $0.25-0.40 total.
 
 ## Tech Stack
 
