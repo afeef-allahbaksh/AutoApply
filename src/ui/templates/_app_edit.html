@@ -1,0 +1,44 @@
+<tr id="app-row-{{ row._idx }}">
+  <td colspan="10" style="padding: 1rem; background: var(--color-glass-tertiary);">
+    <form hx-patch="/applications/{{ row._idx }}"
+          hx-target="#app-row-{{ row._idx }}"
+          hx-swap="outerHTML"
+          style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; align-items: end;">
+      <div>
+        <div class="section-label" style="margin-bottom: 0.25rem;">Company</div>
+        <input class="pill-input" name="company" value="{{ row.company }}" required style="width: 100%;">
+      </div>
+      <div>
+        <div class="section-label" style="margin-bottom: 0.25rem;">Role</div>
+        <input class="pill-input" name="role" value="{{ row.role }}" required style="width: 100%;">
+      </div>
+      <div>
+        <div class="section-label" style="margin-bottom: 0.25rem;">Posting URL</div>
+        <input class="pill-input" name="posting_url" value="{{ row.posting_url }}" required style="width: 100%;">
+      </div>
+      <div>
+        <div class="section-label" style="margin-bottom: 0.25rem;">Date</div>
+        <input class="pill-input" name="date" type="date" value="{{ row.date }}" required style="width: 100%;">
+      </div>
+      <div>
+        <div class="section-label" style="margin-bottom: 0.25rem;">Status</div>
+        <select class="pill-select" name="status" style="width: 100%;">
+          {% for s in all_statuses %}
+            <option value="{{ s }}" {% if s == row.status %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="grid-column: span 3;">
+        <div class="section-label" style="margin-bottom: 0.25rem;">Notes</div>
+        <input class="pill-input" name="notes" value="{{ row.notes or '' }}" style="width: 100%;">
+      </div>
+      <div style="grid-column: span 4; display: flex; gap: 0.5rem; justify-content: flex-end;">
+        <button type="button" class="btn-ghost"
+                hx-get="/applications/{{ row._idx }}/row"
+                hx-target="#app-row-{{ row._idx }}"
+                hx-swap="outerHTML">Cancel</button>
+        <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>
+  </td>
+</tr>
