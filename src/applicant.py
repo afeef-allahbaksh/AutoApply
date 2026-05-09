@@ -95,7 +95,8 @@ def apply_to_jobs(
     name_slug = _slugify(profile.data.get("name", ""))
     resumes_dir = profile.profile_dir / "resumes"
 
-    pw, browser, context = get_browser_context(headless=headless)
+    state_path = profile.profile_dir / "browser_state.json"
+    pw, browser, context = get_browser_context(headless=headless, storage_state_path=state_path)
     page = context.new_page()
 
     try:
@@ -153,6 +154,10 @@ def apply_to_jobs(
                         pass
 
     finally:
+        try:
+            context.storage_state(path=str(state_path))
+        except Exception as e:
+            print(f"  Warning: could not save browser state: {e}")
         context.close()
         browser.close()
         pw.stop()
