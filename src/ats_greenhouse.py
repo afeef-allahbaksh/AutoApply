@@ -9,13 +9,14 @@ from src.api import create_message
 # Selectors
 FIRST_NAME = 'input[name="first_name"], #first_name'
 LAST_NAME = 'input[name="last_name"], #last_name'
+PREFERRED_NAME = 'input[name="preferred_name"], #preferred_name, input[id*="preferred" i][id*="name" i]'
+CANDIDATE_LOCATION = '#candidate-location, input[id*="candidate-location" i]'
 EMAIL = 'input[name="email"], #email'
 PHONE = 'input[name="phone"], #phone, input[id*="phone" i]'
 PHONE_COUNTRY = 'select[name="phone_country_code"], select[id*="phone" i][id*="country" i]'
-LOCATION = 'input[name="location"], #location, input[id*="location" i], input[autocomplete="address-level2"]'
+LOCATION = 'input[name="location"], #location, input[autocomplete="address-level2"]'
 LINKEDIN = 'input[autocomplete="custom-question-linkedin-profile"], input[name*="linkedin" i], input[id*="linkedin" i], input[placeholder*="linkedin" i], input[aria-label*="LinkedIn" i]'
 RESUME_UPLOAD = 'input[type="file"][name="resume"]'
-RESUME_BUTTON = 'button:has-text("Attach"), button:has-text("Upload"), label:has-text("Attach"), label:has-text("Upload")'
 COVER_LETTER_UPLOAD = 'input[type="file"][name="cover_letter"]'
 SUBMIT_BUTTON = 'button:has-text("Submit")'
 # Custom questions: Greenhouse uses question_ prefix, but some forms use other patterns
@@ -31,14 +32,6 @@ EDU_START_MONTH = 'select[id^="start-month-"], input[id^="start-month-"], select
 EDU_START_YEAR = 'select[id^="start-year-"], input[id^="start-year-"], select[name*="start_year"], input[name*="start_year"]'
 EDU_END_MONTH = 'select[id^="end-month-"], input[id^="end-month-"], select[name*="end_month"], input[name*="end_month"]'
 EDU_END_YEAR = 'select[id^="end-year-"], input[id^="end-year-"], select[name*="end_year"], input[name*="end_year"]'
-
-# EEO / Voluntary Self-Identification selectors
-EEO_GENDER = 'select[id*="gender" i], select[name*="gender" i]'
-EEO_RACE = 'select[id*="race" i], select[name*="race" i]'
-EEO_HISPANIC = 'select[id*="hispanic" i], select[name*="hispanic" i]'
-EEO_VETERAN = 'select[id*="veteran" i], select[name*="veteran" i]'
-EEO_DISABILITY = 'select[id*="disability" i], select[name*="disability" i]'
-
 
 def _wait_for_form(page: Page, timeout: int = 15000) -> bool:
     """Wait for the Greenhouse application form to load."""
@@ -175,7 +168,12 @@ def _parse_date_parts(date_str: str) -> tuple[str | None, str | None]:
 
 
 def _fill_location_autocomplete(page: Page, location: str) -> bool:
-    """Fill location field and handle Google Places autocomplete dropdown."""
+    """Fill location field and handle Google Places autocomplete dropdown.
+
+    If no autocomplete suggestion appears, leave the typed text in place rather
+    than pressing Enter — on some forms (Calendly) Enter against an empty
+    suggestion list clears the input and the field fails required validation.
+    """
     try:
         el = page.locator(LOCATION).first
         if not el.is_visible(timeout=1000):
@@ -201,10 +199,7 @@ def _fill_location_autocomplete(page: Page, location: str) -> bool:
             except Exception:
                 continue
 
-        # Fallback: ArrowDown + Enter
-        el.press("ArrowDown")
-        time.sleep(0.3)
-        el.press("Enter")
+        # No suggestion appeared — leave typed text as the value.
         return True
 
     except Exception:
@@ -416,25 +411,155 @@ def _fill_education_section(page: Page, resume_data: dict | None) -> list[str]:
     return filled
 
 
-def _fill_eeo_section(page: Page, responses: dict) -> list[str]:
-    """Fill the Voluntary Self-Identification / EEO section using canned responses only."""
-    filled = []
+DEMOGRAPHIC_KEYWORDS = {
+    "gender": "gender",
+    "race": "ethnicity",
+    "ethnicity": "ethnicity",
+    "hispanic": "ethnicity",
+    "latino": "ethnicity",
+    "veteran": "veteran_status",
+    "disability": "disability",
+}
 
-    eeo_fields = [
-        (EEO_GENDER, "gender", responses.get("gender", "")),
-        (EEO_RACE, "ethnicity", responses.get("ethnicity", "")),
-        (EEO_HISPANIC, "hispanic", responses.get("ethnicity", "")),
-        (EEO_VETERAN, "veteran_status", responses.get("veteran_status", "")),
-        (EEO_DISABILITY, "disability", responses.get("disability", "")),
-    ]
+DECLINE_PATTERNS = [
+    "decline to self-identify",
+    "decline to identify",
+    "prefer not",
+    "decline to answer",
+    "i don't wish",
+    "do not wish to disclose",
+    "do not wish to answer",
+    "no answer",
+    "rather not",
+]
 
-    for selector, name, value in eeo_fields:
-        if not value:
+
+def _is_decline_option(text: str) -> bool:
+    t = text.lower()
+    return any(p in t for p in DECLINE_PATTERNS)
+
+
+def _demographic_key_for_label(label_text: str) -> str | None:
+    t = label_text.lower()
+    for kw, key in DEMOGRAPHIC_KEYWORDS.items():
+        if kw in t:
+            return key
+    return None
+
+
+def _select_decline_in_native(field) -> bool:
+    """Pick a 'decline' / 'prefer not to' option from a native <select>."""
+    try:
+        for opt in field.locator("option").all():
+            text = opt.inner_text().strip()
+            if text and _is_decline_option(text):
+                field.select_option(label=text)
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _fill_combobox_with_decline(page: Page, field, answer: str) -> bool:
+    """Open a React Select combobox, pick canned answer if it matches an option,
+    otherwise pick a 'decline' option. Returns True if anything was selected."""
+    try:
+        field.click()
+        time.sleep(0.4)
+        option_els = page.locator('[role="option"]').all()
+        option_labels = [o.inner_text().strip() for o in option_els if o.inner_text().strip()]
+        if not option_labels:
+            field.press("Escape")
+            return False
+
+        target = None
+        if answer:
+            ans_lower = answer.lower().strip()
+            for opt in option_labels:
+                opt_lower = opt.lower()
+                if opt == answer or opt_lower == ans_lower or ans_lower in opt_lower or opt_lower in ans_lower:
+                    target = opt
+                    break
+        if not target:
+            for opt in option_labels:
+                if _is_decline_option(opt):
+                    target = opt
+                    break
+        if not target:
+            field.press("Escape")
+            return False
+
+        for opt_el in page.locator('[role="option"]').all():
+            try:
+                if opt_el.inner_text().strip() == target:
+                    opt_el.click()
+                    return True
+            except Exception:
+                continue
+        field.press("Escape")
+        return False
+    except Exception:
+        return False
+
+
+def _fill_demographics(page: Page, responses: dict) -> tuple[list[str], set[str]]:
+    """Fill demographic/EEO fields by matching labels to demographic keywords.
+
+    Works for both native <select> and React Select comboboxes regardless of
+    the form's ID convention. Uses canned responses when set; otherwise
+    defaults to a 'Decline to self-identify' option to satisfy required
+    validation while preserving privacy.
+
+    Returns (filled_field_names, set_of_handled_field_ids). Caller passes the
+    ID set into the custom-question handler so demographic fields aren't
+    re-processed.
+    """
+    filled: list[str] = []
+    handled_ids: set[str] = set()
+    seen_keys: set[str] = set()
+
+    try:
+        labels = page.locator("label").all()
+    except Exception:
+        return filled, handled_ids
+
+    for label in labels:
+        try:
+            text = label.inner_text().strip()
+            if not text:
+                continue
+            key = _demographic_key_for_label(text)
+            if not key or key in seen_keys:
+                continue
+
+            for_id = label.get_attribute("for") or ""
+            if not for_id:
+                continue
+            field = page.locator(f'#{for_id}').first
+            if not field.is_visible(timeout=500):
+                continue
+
+            tag = field.evaluate("el => el.tagName.toLowerCase()")
+            role_attr = field.get_attribute("role") or ""
+            answer = (responses.get(key, "") or "").strip()
+
+            ok = False
+            if tag == "select":
+                if answer and _fuzzy_match_options(field, answer):
+                    ok = True
+                else:
+                    ok = _select_decline_in_native(field)
+            elif role_attr == "combobox" or tag == "input":
+                ok = _fill_combobox_with_decline(page, field, answer)
+
+            if ok:
+                filled.append(f"demographic_{key}")
+                handled_ids.add(for_id)
+                seen_keys.add(key)
+        except Exception:
             continue
-        if _select_option_fuzzy(page, selector, value):
-            filled.append(f"eeo_{name}")
 
-    return filled
+    return filled, handled_ids
 
 
 def _split_name(full_name: str) -> tuple[str, str]:
@@ -458,6 +583,8 @@ def _build_applicant_context(profile_data: dict, resume_data: dict | None, respo
     sections.append(f"Email: {profile_data.get('email', '')}")
     sections.append(f"Phone: {profile_data.get('phone', '')}")
     sections.append(f"Location: {profile_data.get('location', '')}")
+    if profile_data.get("zip_code"):
+        sections.append(f"Zip Code: {profile_data['zip_code']}")
     if profile_data.get("linkedin"):
         linkedin = profile_data["linkedin"]
         full = linkedin if linkedin.startswith("http") else f"https://linkedin.com/in/{linkedin}"
@@ -649,18 +776,23 @@ def _handle_custom_questions(
     job_content: str,
     profile_data: dict,
     resume_data: dict | None = None,
+    skip_ids: set[str] | None = None,
 ) -> list[dict]:
     """Find and answer custom questions on the form.
 
     Checks canned responses first, then falls back to Claude with full context.
+    Skips any field whose id is in skip_ids (e.g. demographics already filled).
     Returns a list of {question, answer, method} dicts for logging.
     """
     answered = []
+    skip_ids = skip_ids or set()
     questions = page.locator(CUSTOM_QUESTION).all()
 
     for q in questions:
         try:
             q_id = q.get_attribute("id") or ""
+            if q_id and q_id in skip_ids:
+                continue
             label_text = _get_question_text(page, q, q_id)
 
             if not label_text:
@@ -855,6 +987,7 @@ def fill_greenhouse_application(
         field_map = [
             (FIRST_NAME, first, "first_name"),
             (LAST_NAME, last, "last_name"),
+            (PREFERRED_NAME, first, "preferred_name"),
             (EMAIL, profile_data.get("email", ""), "email"),
             (PHONE, profile_data.get("phone", ""), "phone"),
         ]
@@ -870,10 +1003,36 @@ def fill_greenhouse_application(
             if value and _fill_if_exists(page, selector, value):
                 result["fields_filled"].append(name)
 
-        # Location with autocomplete handling
+        # Location — try regular input first, then React Select combobox
         location = profile_data.get("location", "")
-        if location and _fill_location_autocomplete(page, location):
-            result["fields_filled"].append("location")
+        if location:
+            if _fill_location_autocomplete(page, location):
+                result["fields_filled"].append("location")
+            else:
+                # Candidate-location React Select combobox (e.g. Twilio)
+                try:
+                    loc_el = page.locator(CANDIDATE_LOCATION).first
+                    if loc_el.is_visible(timeout=1000):
+                        role = loc_el.get_attribute("role") or ""
+                        if role == "combobox" or loc_el.get_attribute("aria-haspopup"):
+                            loc_el.click()
+                            time.sleep(0.3)
+                            loc_el.fill("")
+                            loc_el.type(location, delay=50)
+                            time.sleep(1.0)
+                            option = page.locator('[role="option"]').first
+                            if option.is_visible(timeout=1500):
+                                option.click()
+                            else:
+                                loc_el.press("ArrowDown")
+                                time.sleep(0.2)
+                                loc_el.press("Enter")
+                            result["fields_filled"].append("location")
+                        else:
+                            loc_el.fill(location)
+                            result["fields_filled"].append("location")
+                except Exception:
+                    pass
 
         # Phone country code dropdown — select US (+1)
         try:
@@ -890,18 +1049,8 @@ def fill_greenhouse_application(
         except Exception:
             pass
 
-        # Upload resume — click upload button first if needed, then set file
+        # Upload resume — set_input_files works on hidden inputs without clicking
         if resume_path and Path(resume_path).exists():
-            uploaded = False
-            # Try clicking an upload/attach button to reveal the file input
-            try:
-                upload_btn = page.locator(RESUME_BUTTON)
-                if upload_btn.count() > 0:
-                    upload_btn.first.click()
-                    time.sleep(1)
-            except Exception:
-                pass
-
             resume_selectors = [
                 RESUME_UPLOAD,
                 'input[type="file"][id*="resume" i]',
@@ -910,18 +1059,7 @@ def fill_greenhouse_application(
             for sel in resume_selectors:
                 if _upload_if_exists(page, sel, resume_path):
                     result["fields_filled"].append("resume")
-                    uploaded = True
                     break
-
-            # Last resort: use page.set_input_files on any file input
-            if not uploaded:
-                try:
-                    file_inputs = page.locator('input[type="file"]')
-                    if file_inputs.count() > 0:
-                        file_inputs.first.set_input_files(resume_path)
-                        result["fields_filled"].append("resume")
-                except Exception:
-                    pass
 
         # Cover letter — generate and fill if the form has a text field, or upload
         cl_text = page.locator('textarea[name="cover_letter_text"], textarea[id*="cover_letter"]')
@@ -938,15 +1076,17 @@ def fill_greenhouse_application(
         edu_filled = _fill_education_section(page, resume_data)
         result["fields_filled"].extend(edu_filled)
 
-        # Handle custom questions — pass full resume data for intelligent answering
+        # Fill demographic / EEO fields first so the custom-question handler
+        # can skip them. Defaults to "Decline to self-identify" when no canned
+        # response is set.
+        demo_filled, demo_ids = _fill_demographics(page, responses)
+        result["fields_filled"].extend(demo_filled)
+
+        # Handle remaining custom questions — pass full resume data for intelligent answering
         result["custom_answers"] = _handle_custom_questions(
             page, responses, job_content, profile_data,
-            resume_data=resume_data,
+            resume_data=resume_data, skip_ids=demo_ids,
         )
-
-        # Fill EEO / voluntary self-identification
-        eeo_filled = _fill_eeo_section(page, responses)
-        result["fields_filled"].extend(eeo_filled)
 
         result["success"] = True
 

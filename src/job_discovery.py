@@ -5,9 +5,46 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
 from src.api import create_message
-from src.profile_loader import PROFILES_DIR
+from src.profile_loader import PROFILES_DIR, normalize_posting_url
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
+_YEARS_RE = re.compile(r"\d+\+?\s*(?:years?|yrs?)\b", re.IGNORECASE)
+_REQUIREMENTS_HEADERS = re.compile(
+    r"(?:qualifications?|requirements?|who you are|what you.?ll need|what we.?re looking for|minimum qualifications?|must have|years of.{0,20}experience)",
+    re.IGNORECASE,
+)
+
+
+def _extract_job_snippet(content: str, max_len: int = 500) -> str:
+    """Extract the most relevant snippet from a job description.
+
+    Prioritizes requirements/qualifications sections and years-of-experience
+    mentions over intro marketing copy.
+    """
+    import html
+    clean = html.unescape(content)
+    clean = _HTML_TAG_RE.sub(" ", clean)
+    # Collapse whitespace
+    clean = re.sub(r"\s+", " ", clean).strip()
+    if not clean:
+        return ""
+
+    # Try to find the requirements section
+    match = _REQUIREMENTS_HEADERS.search(clean)
+    if match:
+        # Start from the requirements header
+        section = clean[match.start():match.start() + max_len]
+        return section + "..." if len(clean) > match.start() + max_len else section
+
+    # Fallback: find years-of-experience mentions and grab surrounding context
+    years_match = _YEARS_RE.search(clean)
+    if years_match:
+        start = max(0, years_match.start() - 100)
+        section = clean[start:start + max_len]
+        return section + "..." if len(clean) > start + max_len else section
+
+    # Last resort: first max_len chars
+    return clean[:max_len] + ("..." if len(clean) > max_len else "")
 
 GREENHOUSE_JOBS_API = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
 LEVER_JOBS_API = "https://api.lever.co/v0/postings/{slug}"
@@ -145,13 +182,10 @@ def classify_jobs_by_level(jobs: list[dict], experience_levels: list[str]) -> li
     if not jobs or not experience_levels:
         return jobs
 
-    # Build entries with title + first 150 chars of description for context
+    # Build entries with title + requirements snippet for context
     entries = []
     for i, job in enumerate(jobs):
-        desc = job.get("content", "")
-        # Strip HTML tags for a clean snippet
-        clean = _HTML_TAG_RE.sub(" ", desc).strip()
-        snippet = clean[:150] + "..." if len(clean) > 150 else clean
+        snippet = _extract_job_snippet(job.get("content", ""))
         entries.append(f"{i}: {job['title']} | {snippet}" if snippet else f"{i}: {job['title']}")
 
     prompt = f"""You are a job level classifier. Given a list of job postings (title + description snippet) and the applicant's target experience level, return ONLY the indices of jobs that match.
@@ -162,10 +196,13 @@ Jobs (index: title | description snippet):
 {chr(10).join(entries)}
 
 Rules:
-- A "new grad" or "entry-level" applicant should match: new grad, junior, associate, entry-level, early career, and generic titles without a seniority prefix (e.g. "Software Engineer" is fine, "Senior Software Engineer" is not)
-- Check the description snippet too — if it mentions "5+ years", "7+ years", "extensive experience" etc., exclude it for entry-level applicants
-- If the description mentions "0-2 years", "new grad welcome", "early career" etc., include it even if the title is ambiguous
-- When in doubt, include the job (better to show too many than miss a good match)
+- Match the job's seniority to the target experience level above
+- Use title signals (Junior, Senior, Staff, Lead, I/II/III/IV, Intermediate, Principal, etc.) to determine the job's level
+- For AMBIGUOUS titles with no level indicator (e.g. plain "Software Engineer"):
+  - INCLUDE them — the fit scorer will handle fine-grained filtering separately
+  - Only EXCLUDE if the description makes it VERY clear the level is wrong (e.g. "10+ years" for an entry-level applicant, or "new grad only" for a senior applicant)
+- This classifier removes OBVIOUSLY wrong-level jobs — it is NOT a strict filter
+- When in doubt, ALWAYS include the job
 - Return ONLY a JSON array of matching index numbers, nothing else"""
 
     message = create_message(
@@ -188,7 +225,54 @@ Rules:
     return [job for i, job in enumerate(jobs) if i in matching_indices]
 
 
-def score_jobs_fit(jobs: list[dict], resume_data: dict) -> list[dict]:
+def classify_jobs_by_country(jobs: list[dict], user_location: str) -> list[dict]:
+    """Use a single LLM call to keep only jobs the user can apply to from their country.
+
+    Sends all job locations in one batch — costs ~$0.005 regardless of count.
+    The LLM infers the user's country from their profile location, then keeps jobs
+    that are in the same country or globally remote. Drops jobs explicitly bound
+    to a different country.
+    """
+    if not jobs or not user_location:
+        return jobs
+
+    entries = [f"{i}: {job.get('location', '')}" for i, job in enumerate(jobs)]
+
+    prompt = f"""You are a job location filter. The applicant lives in: {user_location}
+
+Decide which jobs the applicant can realistically apply to based on country eligibility.
+
+Jobs (index: location string):
+{chr(10).join(entries)}
+
+Rules:
+- INCLUDE jobs in the applicant's country
+- INCLUDE jobs that are globally remote with no country restriction (e.g. "Remote", "Worldwide")
+- INCLUDE jobs listing multiple countries if the applicant's country is one of them
+- EXCLUDE jobs bound to a different country only (e.g. applicant in US, job is "Remote - Estonia" or "London, UK")
+- When the location is ambiguous, INCLUDE the job
+- Return ONLY a JSON array of matching index numbers, nothing else"""
+
+    message = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    raw = message.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1]
+        raw = raw.rsplit("```", 1)[0]
+
+    try:
+        matching_indices = set(json.loads(raw))
+    except (json.JSONDecodeError, TypeError):
+        return jobs
+
+    return [job for i, job in enumerate(jobs) if i in matching_indices]
+
+
+def score_jobs_fit(jobs: list[dict], resume_data: dict, preferences: dict | None = None) -> list[dict]:
     """Use a single LLM call to score how well each job fits the candidate's resume.
 
     Attaches fit_score (1-5) and fit_rationale to each job dict.
@@ -202,27 +286,38 @@ def score_jobs_fit(jobs: list[dict], resume_data: dict) -> list[dict]:
     skills_list = []
     for group in resume_data.get("skills", []):
         skills_list.extend(group.get("items", []))
-    experience_summary = [
-        f"{exp['title']} at {exp['company']}" for exp in resume_data.get("experience", [])
-    ]
-    education_summary = [
-        f"{edu['degree']} {edu.get('field', '')} — {edu['institution']}"
-        for edu in resume_data.get("education", [])
-    ]
+
+    experience_summary = []
+    for exp in resume_data.get("experience", []):
+        title = exp["title"]
+        company = exp["company"]
+        start = exp.get("start_date", "")
+        end = exp.get("end_date", "Present")
+        experience_summary.append(f"{title} at {company} ({start} - {end})")
+
+    education_summary = []
+    for edu in resume_data.get("education", []):
+        degree = f"{edu['degree']} {edu.get('field', '')}".strip()
+        institution = edu["institution"]
+        grad = edu.get("end_date", "")
+        start = edu.get("start_date", "")
+        education_summary.append(f"{degree} — {institution} ({start} - {grad})")
+
+    experience_levels = preferences.get("experience_levels", []) if preferences else []
+    level_str = f"Target experience level: {', '.join(experience_levels)}\n" if experience_levels else ""
 
     candidate = (
         f"Name: {contact.get('name', 'Unknown')}\n"
+        f"{level_str}"
         f"Skills: {', '.join(skills_list[:30])}\n"
         f"Experience: {'; '.join(experience_summary)}\n"
         f"Education: {'; '.join(education_summary)}"
     )
 
-    # Build job entries with snippets
+    # Build job entries with requirements snippets
     entries = []
     for i, job in enumerate(jobs):
-        desc = job.get("content", "")
-        clean = _HTML_TAG_RE.sub(" ", desc).strip()
-        snippet = clean[:150] + "..." if len(clean) > 150 else clean
+        snippet = _extract_job_snippet(job.get("content", ""))
         entries.append(f"{i}: {job['title']} at {job['company']} | {snippet}")
 
     prompt = f"""You are a job fit evaluator. Given a candidate's profile and a list of job postings, score how well the candidate fits each job.
@@ -230,15 +325,21 @@ def score_jobs_fit(jobs: list[dict], resume_data: dict) -> list[dict]:
 Candidate profile:
 {candidate}
 
+IMPORTANT context for scoring:
+- Look at the candidate's education dates to determine if they are a current student, recent grad, or experienced professional.
+- If the candidate is still in school or recently graduated, their experience entries are likely co-ops/internships — do NOT count them as full-time years of professional experience.
+- If a job's required experience level exceeds what the candidate actually has (accounting for co-ops vs full-time), penalize the score.
+- If the candidate's target experience level is provided, roles that don't match that level should score lower.
+
 Jobs (index: title at company | description snippet):
 {chr(10).join(entries)}
 
 Score each job on a 1-5 scale:
-5 = Excellent fit — skills and experience directly match
-4 = Good fit — most requirements met
-3 = Moderate fit — some overlap but gaps exist
-2 = Weak fit — limited relevance
-1 = Poor fit — unrelated
+5 = Excellent fit — skills match AND experience level is appropriate for the candidate
+4 = Good fit — skills match well, experience level is reasonable
+3 = Moderate fit — some skill overlap but level may be a stretch or domain mismatch
+2 = Weak fit — role is above/below candidate's level or limited skill overlap
+1 = Poor fit — wrong level entirely or unrelated domain
 
 Return ONLY a JSON array, no markdown fences:
 [{{"index": 0, "score": 4, "rationale": "Strong match..."}}, ...]"""
@@ -275,16 +376,16 @@ Return ONLY a JSON array, no markdown fences:
 def deduplicate_jobs(jobs: list[dict], applications: list[dict]) -> list[dict]:
     """Remove jobs the user has already applied to.
 
-    Uses composite key: (company, title, posting_url) matched against
-    (company, role, posting_url) in applications.json.
+    Uses composite key (company, title, normalized_posting_url) so URLs with
+    tracking params don't bypass dedup.
     """
     applied = {
-        (a["company"], a["role"], a["posting_url"])
+        (a["company"], a["role"], normalize_posting_url(a["posting_url"]))
         for a in applications
     }
     return [
         j for j in jobs
-        if (j["company"], j["title"], j["posting_url"]) not in applied
+        if (j["company"], j["title"], normalize_posting_url(j["posting_url"])) not in applied
     ]
 
 
@@ -313,11 +414,16 @@ def discover_jobs(profile_name: str) -> list[dict]:
 
     # Load companies
     companies_path = profile_dir / "companies.json"
-    if not companies_path.exists():
-        print("No companies.json found. Run 'discover' first.")
+    companies = []
+    if companies_path.exists() and companies_path.stat().st_size > 0:
+        try:
+            with open(companies_path) as f:
+                companies = json.load(f)
+        except json.JSONDecodeError:
+            companies = []
+    if not companies:
+        print("No companies found. Run 'discover' first.")
         return []
-    with open(companies_path) as f:
-        companies = json.load(f)
 
     # Load profile preferences
     with open(profile_dir / "profile.json") as f:
@@ -327,9 +433,12 @@ def discover_jobs(profile_name: str) -> list[dict]:
     # Load applications for dedup
     applications_path = profile_dir / "applications.json"
     applications = []
-    if applications_path.exists():
-        with open(applications_path) as f:
-            applications = json.load(f)
+    if applications_path.exists() and applications_path.stat().st_size > 0:
+        try:
+            with open(applications_path) as f:
+                applications = json.load(f)
+        except json.JSONDecodeError:
+            applications = []
 
     all_jobs = []
     with ThreadPoolExecutor(max_workers=5) as pool:
@@ -346,6 +455,14 @@ def discover_jobs(profile_name: str) -> list[dict]:
     # Filter by keyword + location
     matched = filter_jobs(all_jobs, preferences)
     print(f"\n  {len(matched)} jobs match keywords/location (from {len(all_jobs)} total)")
+
+    # Filter out jobs in other countries using LLM
+    user_location = profile.get("location", "")
+    if user_location and matched:
+        print(f"  Classifying {len(matched)} jobs by country (~$0.005)...")
+        before = len(matched)
+        matched = classify_jobs_by_country(matched, user_location)
+        print(f"  {len(matched)} jobs in your country (dropped {before - len(matched)})")
 
     # Filter by experience level using LLM
     experience_levels = preferences.get("experience_levels", [])
@@ -364,7 +481,7 @@ def discover_jobs(profile_name: str) -> list[dict]:
         with open(resume_path) as f:
             resume_data = json.load(f)
         print(f"  Scoring {len(new_jobs)} jobs for fit (~$0.01)...")
-        new_jobs = score_jobs_fit(new_jobs, resume_data)
+        new_jobs = score_jobs_fit(new_jobs, resume_data, preferences)
         excellent_good = sum(1 for j in new_jobs if j.get("fit_score", 3) >= 4)
         moderate = sum(1 for j in new_jobs if j.get("fit_score", 3) == 3)
         weak_poor = sum(1 for j in new_jobs if j.get("fit_score", 3) < 3)

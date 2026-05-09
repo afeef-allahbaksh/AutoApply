@@ -18,6 +18,7 @@ Python backend, Playwright for browser automation, Claude API (via shared single
 - **Optimization caching** — `save_tailored_resume()` stores a sha256 hash of (resume + JD). `find_cached_resume()` checks hash before calling the API, skipping redundant optimization calls
 - **Batch project selection** — `batch_select_projects()` selects projects for multiple jobs in one LLM call. Used in pipeline and apply loops; `select_projects()` still used for single-job optimize command
 - **Dry run mode** — `apply --dry-run` fills forms and takes screenshots but never submits or logs to applications.json
+- **ATS detection** — companies.json stores detected ATS per company. Never re-detect on apply — trust what's in companies.json
 
 ## Planning
 - Enter plan mode for any non-trivial task (3+ steps or architectural decisions)

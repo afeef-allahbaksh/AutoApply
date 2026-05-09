@@ -1,10 +1,27 @@
 import json
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 from jsonschema import ValidationError
 
 from src.schemas import validate_profile, validate_responses, validate_applications
 
 PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
+
+
+def normalize_posting_url(url: str) -> str:
+    """Strip query string, fragment, and trailing slash for stable dedup keys.
+
+    Handles tracking params (utm_source, gh_src, etc.) that vary between scrapes
+    of the same job posting.
+    """
+    if not url:
+        return url
+    try:
+        p = urlparse(url)
+        path = p.path.rstrip("/")
+        return urlunparse((p.scheme.lower(), p.netloc.lower(), path, "", "", ""))
+    except Exception:
+        return url
 
 
 class ProfileLoadError(Exception):
@@ -45,9 +62,12 @@ class Profile:
 
     def _load_json_optional(self, filename: str, validator, default):
         path = self.profile_dir / filename
-        if not path.exists():
+        if not path.exists() or path.stat().st_size == 0:
             return default
-        return self._load_json(filename, validator)
+        try:
+            return self._load_json(filename, validator)
+        except ProfileLoadError:
+            return default
 
     @property
     def job_preferences(self) -> dict:
@@ -66,11 +86,15 @@ class Profile:
         return self.settings.get("rate_limit_seconds", 30)
 
     def is_already_applied(self, company: str, role: str, posting_url: str) -> bool:
-        """Check if an application already exists by composite key."""
+        """Check if an application already exists by composite key.
+
+        Compares URLs after stripping query/fragment so tracking params don't bypass dedup.
+        """
+        target = normalize_posting_url(posting_url)
         for app in self.applications:
             if (app["company"] == company
                     and app["role"] == role
-                    and app["posting_url"] == posting_url):
+                    and normalize_posting_url(app["posting_url"]) == target):
                 return True
         return False
 
