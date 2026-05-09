@@ -46,21 +46,23 @@ def _render_main(request: Request, profile_name: str, sync_msg: str = "", sync_e
 
 
 @router.post("/email/sync")
-def sync_inbox(request: Request):
+def sync_inbox(request: Request, deep: str = Form("")):
     profile_name = state.active_profile()
     lock = state.profile_lock(profile_name)
-    # Non-blocking: a sync can take 30s+; if one is already running, surface that
-    # immediately rather than queue a second click behind it.
+    # Non-blocking: a sync can take 30s+ (or several minutes for deep mode);
+    # if one is already running, surface that immediately rather than queue.
     if not lock.acquire(blocking=False):
         return _render_main(request, profile_name, sync_err="Another action is in progress; try again shortly.")
     try:
-        result = inbox_sync.sync_now(profile_name)
+        result = inbox_sync.sync_now(profile_name, deep=bool(deep))
     finally:
         lock.release()
     if not result.get("ok"):
         return _render_main(request, profile_name, sync_err=result.get("error", "Sync failed."))
+    mode = "Full history sync" if deep else "Sync"
     summary = (
-        f"Sync complete: {result.get('messages_seen', 0)} new messages, "
+        f"{mode} complete: {result.get('messages_seen', 0)} new messages seen, "
+        f"{result.get('after_prefilter', 0)} survived prefilter, "
         f"{result.get('new_proposals', 0)} new proposals."
     )
     return _render_main(request, profile_name, sync_msg=summary)

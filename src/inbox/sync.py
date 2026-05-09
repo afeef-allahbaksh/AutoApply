@@ -8,13 +8,15 @@ from src.inbox import auth, classify, fetch, matcher
 from src.profile_loader import Profile
 from src.schemas import validate_inbox_state, validate_proposals
 
-INITIAL_LOOKBACK_DAYS = 30
-DEFAULT_MAX_MESSAGES = 200
+INITIAL_LOOKBACK_DAYS = 365
+DEFAULT_MAX_MESSAGES = 1000
+DEEP_LOOKBACK_DAYS = 1825
+DEEP_MAX_MESSAGES = 5000
 MIN_CONFIDENCE = 0.6
 # Cap processed_message_ids so the state.json doesn't grow unbounded over months
 # of syncs. New messages are queried by `after:` timestamp, so the dedup window
 # only needs to cover the lookback period of the most recent sync.
-MAX_PROCESSED_IDS = 5000
+MAX_PROCESSED_IDS = 10000
 
 # Prefilter — skip these obvious-noise senders before sending to Claude.
 PREFILTER_IGNORE_SENDERS = {
@@ -152,10 +154,13 @@ def _build_proposal(msg: dict, classified: dict, match: dict) -> dict:
     }
 
 
-def sync_now(profile_name: str, max_messages: int = DEFAULT_MAX_MESSAGES) -> dict:
+def sync_now(profile_name: str, deep: bool = False) -> dict:
     """Run a full sync. Returns a summary dict with counts.
 
-    Steps: fetch new messages -> prefilter -> classify -> match -> write proposals.
+    Steps: header-fetch -> prefilter -> body-fetch survivors -> classify -> match -> proposals.
+
+    `deep=True` ignores last_sync_at and pulls 5 years / 5000 messages. Use it once on
+    initial setup to backfill history; thereafter the incremental defaults are enough.
     """
     creds = auth.load_credentials(profile_name)
     if not creds:
@@ -164,19 +169,34 @@ def sync_now(profile_name: str, max_messages: int = DEFAULT_MAX_MESSAGES) -> dic
     state = load_state(profile_name)
     processed_ids = set(state.get("processed_message_ids", []))
 
-    last_sync_str = state.get("last_sync_at") or ""
-    if last_sync_str:
-        since_dt = datetime.fromisoformat(last_sync_str)
+    if deep:
+        since_dt = datetime.now(timezone.utc) - timedelta(days=DEEP_LOOKBACK_DAYS)
+        max_messages = DEEP_MAX_MESSAGES
     else:
-        since_dt = datetime.now(timezone.utc) - timedelta(days=INITIAL_LOOKBACK_DAYS)
+        last_sync_str = state.get("last_sync_at") or ""
+        if last_sync_str:
+            since_dt = datetime.fromisoformat(last_sync_str)
+        else:
+            since_dt = datetime.now(timezone.utc) - timedelta(days=INITIAL_LOOKBACK_DAYS)
+        max_messages = DEFAULT_MAX_MESSAGES
 
+    print(f"[inbox] sync starting (deep={deep}, since={since_dt.date()}, max={max_messages})")
     try:
-        messages = fetch.list_messages_since(creds, since_dt, max_results=max_messages)
+        headers = fetch.list_message_headers_since(creds, since_dt, max_results=max_messages)
     except Exception as e:
-        return {"ok": False, "error": f"Inbox fetch failed: {e}"}
+        return {"ok": False, "error": f"Inbox header fetch failed: {e}"}
+    print(f"[inbox] fetched {len(headers)} headers")
 
-    new_messages = [m for m in messages if m["id"] not in processed_ids]
+    new_messages = [m for m in headers if m["id"] not in processed_ids]
     survivors = [m for m in new_messages if _prefilter(m)]
+    print(f"[inbox] {len(new_messages)} new, {len(survivors)} survived prefilter")
+
+    if survivors:
+        try:
+            fetch.populate_bodies(creds, survivors)
+        except Exception as e:
+            return {"ok": False, "error": f"Inbox body fetch failed: {e}"}
+        print(f"[inbox] bodies fetched; classifying...")
 
     classified = classify.classify_messages(survivors) if survivors else []
 
@@ -208,6 +228,7 @@ def sync_now(profile_name: str, max_messages: int = DEFAULT_MAX_MESSAGES) -> dic
     combined_ids = list(processed_ids | {m["id"] for m in new_messages})
     state["processed_message_ids"] = combined_ids[-MAX_PROCESSED_IDS:]
     save_state(profile_name, state)
+    print(f"[inbox] sync done: {len(new_proposals)} new proposals")
 
     return {
         "ok": True,

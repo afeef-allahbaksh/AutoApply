@@ -6,11 +6,15 @@
           hx-target="#applications-content"
           hx-swap="outerHTML"
           hx-indicator="#sync-spinner"
-          style="display: inline-flex; gap: 0.5rem; align-items: center;">
+          style="display: inline-flex; gap: 0.625rem; align-items: center;">
       <button type="submit" class="btn-ghost" hx-disabled-elt="this">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="m4 4 8 7 8-7"/></svg>
         Sync inbox
       </button>
+      <label style="display: inline-flex; gap: 0.25rem; align-items: center; font-size: 11px; color: var(--ink-soft);"
+             title="Ignore last_sync_at and look back 5 years. Slow (several minutes) — use once to backfill, then leave unchecked.">
+        <input type="checkbox" name="deep" value="1"> Full history
+      </label>
       <span id="sync-spinner" class="htmx-indicator spinner" style="margin-left: 0.25rem;"></span>
     </form>
   {% else %}
