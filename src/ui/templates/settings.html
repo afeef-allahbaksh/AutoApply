@@ -1,7 +1,85 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="glass-card" style="padding: 1.5rem;">
-  <div class="section-label">Coming next</div>
-  <p style="margin-top: 0.5rem;">Settings forms land in step 8.</p>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start;">
+
+  <div class="glass-card" style="padding: 1.5rem;">
+    <div class="section-label" style="margin-bottom: 0.875rem;">Profile preferences</div>
+
+    {% if profile_msg %}<div class="badge badge-success" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ profile_msg }}</div>{% endif %}
+    {% if profile_err %}<div class="badge badge-danger" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ profile_err }}</div>{% endif %}
+
+    <form method="post" action="/settings/profile" style="display: flex; flex-direction: column; gap: 0.875rem;">
+      <div>
+        <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Roles (comma-separated)</label>
+        <textarea class="pill-input" name="roles" rows="3" style="width: 100%;">{{ profile.job_preferences.roles | join(", ") if profile.job_preferences and profile.job_preferences.roles else "" }}</textarea>
+        <label style="display: inline-flex; gap: 0.375rem; align-items: center; font-size: 11px; color: var(--color-ink-secondary); margin-top: 0.375rem;">
+          <input type="checkbox" name="expand" value="1"> Treat as seed roles and expand via Claude (slower)
+        </label>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Experience levels</label>
+          <input class="pill-input" name="experience_levels" value="{{ profile.job_preferences.experience_levels | join(', ') if profile.job_preferences and profile.job_preferences.experience_levels else '' }}" style="width: 100%;">
+        </div>
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Locations</label>
+          <input class="pill-input" name="locations" value="{{ profile.job_preferences.locations | join(', ') if profile.job_preferences and profile.job_preferences.locations else '' }}" style="width: 100%;">
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Salary min ($)</label>
+          <input class="pill-input" name="salary_min" type="number" min="0" value="{{ profile.job_preferences.salary_min if profile.job_preferences else '' }}" style="width: 100%;">
+        </div>
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Industries</label>
+          <input class="pill-input" name="industries" value="{{ profile.job_preferences.industries | join(', ') if profile.job_preferences and profile.job_preferences.industries else '' }}" placeholder="Optional" style="width: 100%;">
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; align-items: end;">
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Rate limit (seconds)</label>
+          <input class="pill-input" name="rate_limit_seconds" type="number" min="1" value="{{ profile.settings.rate_limit_seconds if profile.settings else 30 }}" style="width: 100%;">
+        </div>
+        <div>
+          <label style="display: inline-flex; gap: 0.5rem; align-items: center;">
+            <input type="checkbox" name="auto_submit" value="1" {% if profile.settings and profile.settings.auto_submit %}checked{% endif %}>
+            <span style="font-size: 13px;">Auto-submit (CLI apply only)</span>
+          </label>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-primary" style="justify-content: center; align-self: flex-start;">Save profile</button>
+    </form>
+  </div>
+
+  <div class="glass-card" style="padding: 1.5rem;">
+    <div class="section-label" style="margin-bottom: 0.875rem;">EEO &amp; canned responses</div>
+
+    {% if responses_msg %}<div class="badge badge-success" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ responses_msg }}</div>{% endif %}
+    {% if responses_err %}<div class="badge badge-danger" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ responses_err }}</div>{% endif %}
+
+    <form method="post" action="/settings/responses" style="display: flex; flex-direction: column; gap: 0.75rem;">
+      {% for field, label in [
+        ('work_authorization', 'Work authorization'),
+        ('visa_sponsorship', 'Visa sponsorship'),
+        ('gender', 'Gender'),
+        ('ethnicity', 'Ethnicity'),
+        ('veteran_status', 'Veteran status'),
+        ('disability', 'Disability'),
+      ] %}
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">{{ label }}</label>
+          <textarea class="pill-input" name="{{ field }}" rows="2" style="width: 100%;">{{ responses[field] if responses[field] else '' }}</textarea>
+        </div>
+      {% endfor %}
+
+      <button type="submit" class="btn-primary" style="justify-content: center; align-self: flex-start; margin-top: 0.375rem;">Save responses</button>
+    </form>
+  </div>
+
 </div>
 {% endblock %}
