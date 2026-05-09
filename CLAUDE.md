@@ -4,7 +4,7 @@
 Fully automated job application pipeline. Seven stages in sequence:
 Profile → Discover Companies → Find Open Roles → Score Fit → Select Projects → Optimize Resume → Apply → Log
 
-Python backend, Playwright for browser automation, Claude API (via shared singleton client with retry) for resume optimization, project selection, and custom question answering. CLI only for v1.
+Python backend, Playwright for browser automation, Claude API (via shared singleton client with retry) for resume optimization, project selection, and custom question answering. CLI is the primary surface; a local FastAPI dashboard (`python main.py --profile X ui`) provides tracking — NOT applying — for interview pipeline state.
 
 ## Architecture notes
 - **Shared API client** — All Claude API calls go through `src/api.py` (`create_message()`) which provides a singleton `anthropic.Anthropic()` client with exponential backoff retry (3 attempts)
@@ -19,6 +19,9 @@ Python backend, Playwright for browser automation, Claude API (via shared single
 - **Batch project selection** — `batch_select_projects()` selects projects for multiple jobs in one LLM call. Used in pipeline and apply loops; `select_projects()` still used for single-job optimize command
 - **Dry run mode** — `apply --dry-run` fills forms and takes screenshots but never submits or logs to applications.json
 - **ATS detection** — companies.json stores detected ATS per company. Never re-detect on apply — trust what's in companies.json
+- **Persistent browser state** — `apply_to_jobs` threads `profiles/{name}/browser_state.json` into Playwright via `storage_state`. Cookies + localStorage carry across runs, so previously-completed 2FA does not re-prompt
+- **Application status lifecycle** — `applications.json` entries carry `status` (extended enum: applied, screen, technical, onsite, offer, rejected, failed, review_pending, skipped), `status_updated_at` (re-stamped on every change), and `source` (`autoapply` for CLI submissions, `manual` for entries created via the UI's manual-add flow or Jobs-page Track button)
+- **UI module** — `src/ui/` is a FastAPI dashboard for tracking, not for applying. It reads `Profile`, calls `_save_applications`, `discover_jobs`, `_save_companies`, `validate_profile`, `validate_responses`, `expand_roles`, and `validate_slug` — no rewrites of business logic. Routes live under `src/ui/routes/`. State lives in `src/ui/state.py` (active profile env-var + per-profile `threading.Lock` registry; mutating routes acquire the lock, apply uses non-blocking acquire and returns 409 if held — kept available for future direct-apply use). Templates use HTMX for partial swaps. Design tokens (aurora gradient, frosted glass, Geist font, navy primary, pill radius) live in `src/ui/templates/base.html` — do not substitute DaisyUI/Flowbite/generic Tailwind defaults
 
 ## Planning
 - Enter plan mode for any non-trivial task (3+ steps or architectural decisions)
@@ -54,9 +57,10 @@ Python backend, Playwright for browser automation, Claude API (via shared single
 - `profiles/` is gitignored — never commit personal data
 - Follow the priority build order in `project-context.md` exactly
 - Greenhouse + Lever only in v1 — no Ashby, no Workday, no Crunchbase
-- CLI only in v1 — no React frontend
-- Everything should be configurable through CLI commands — users should never need to manually edit JSON files
+- CLI is the apply surface; the FastAPI dashboard is the tracking surface — do NOT add Playwright apply triggers to the UI
+- Everything should be configurable through CLI commands and the UI Settings page — users should never need to manually edit JSON files
 - All commands that need file paths (import-resume, add-projects) prompt interactively if --pdf is omitted
 - Resume stored as structured JSON, rendered to PDF — never edit PDFs directly
 - Deduplication by composite key (company + role + posting URL)
 - Rate limit Playwright submissions — respect `rate_limit_seconds`
+- The dashboard is bound to 127.0.0.1 with no auth — single-user, single-machine assumption. Do not add network exposure or auth without an explicit ask

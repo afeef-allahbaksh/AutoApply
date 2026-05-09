@@ -114,8 +114,8 @@ Users can add companies via `add-company` command (auto-detects ATS from slug). 
 ## Key decisions already made
 - No LinkedIn scraping — use Greenhouse/Lever public board indexes instead
 - Profiles system for multi-user support — no auth, no database, just directories
-- CLI only for v1 — no React frontend yet
-- Everything configurable through CLI — no manual JSON editing required
+- CLI is the apply surface; a local FastAPI dashboard (`python main.py --profile X ui`) provides tracking and pipeline visualization. The dashboard never submits applications — that stays in the CLI
+- Everything configurable through CLI commands and the dashboard's Settings page — no manual JSON editing required
 - Resume stored as structured JSON, rendered to PDF via template (weasyprint) — not editing PDFs directly. Users import their existing PDF once; system parses it into JSON.
 - Project pool system — users can add projects from multiple resume versions via CLI; optimizer picks the best N per job to maintain one-page format
 - Shared Anthropic API client (`src/api.py`) with singleton pattern and exponential backoff retry
@@ -136,6 +136,9 @@ Users can add companies via `add-company` command (auto-detects ATS from slug). 
 - Dry run mode — `apply --dry-run` fills forms without submitting or logging
 - Lever content enrichment — `fetch_lever_jobs()` pulls from `lists`, `commitment` fields in addition to `descriptionPlain`
 - CSS cached at module level in resume renderer — read from disk once per process
+- Persistent Playwright `storage_state` per profile (`profiles/{name}/browser_state.json`) — cookies survive across CLI runs so 2FA challenges don't re-prompt
+- Extended `applications.json` status enum (`screen`, `technical`, `onsite`, `offer`, `rejected`) plus `status_updated_at` and `source` (`autoapply` / `manual`) for interview pipeline tracking and dashboard manual entries
+- Local FastAPI dashboard (`src/ui/`) — read-only browse of jobs, full CRUD over applications (status PATCH, manual add, edit, delete), companies add, profile/responses settings forms. HTMX + Jinja2, design tokens shared via `base.html`
 
 ## Priority build order
 1. ~~Profiles system + profile.json + responses.json schema~~ (done)
@@ -148,5 +151,8 @@ Users can add companies via `add-company` command (auto-detects ATS from slug). 
 8. ~~Error recovery — retry failed applications from saved state~~ (done)
 9. ~~Project pool + intelligent project selection per job~~ (done)
 10. ~~Shared API client with retry + parallelized discovery~~ (done)
-11. Ashby support (v2)
-12. Workday support (later, if at all)
+11. ~~Local FastAPI dashboard for interview pipeline tracking + manual application entries~~ (done)
+12. ~~Persistent Playwright storage_state per profile (skip 2FA on re-runs)~~ (done)
+13. Ashby support (v2)
+14. Cold email composer + tracker + Gmail ingestion (v2 — placeholder reserved in dashboard sidebar)
+15. Workday support (later, if at all)

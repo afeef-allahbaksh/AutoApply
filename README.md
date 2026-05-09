@@ -1,6 +1,6 @@
 # AutoApply
 
-A fully automated job application pipeline that discovers relevant job postings, tailors your resume per role, and submits applications through ATS platforms — all from the command line.
+A fully automated job application pipeline that discovers relevant job postings, tailors your resume per role, and submits applications through ATS platforms — driven from the command line, with a local FastAPI dashboard for tracking interview pipeline progress.
 
 ## How It Works
 
@@ -37,7 +37,14 @@ src/
   browser.py                    # Playwright browser management
   ats_greenhouse.py             # Greenhouse form handler (React Select + standard inputs)
   ats_lever.py                  # Lever form handler
-  applicant.py                  # Application submission orchestrator
+  applicant.py                  # Application submission orchestrator (persists Playwright storage_state per profile)
+  ui/                           # Local FastAPI dashboard (tracking, not applying)
+    app.py                      # FastAPI() instance, mounts routers
+    state.py                    # Active profile + per-profile threading.Lock registry
+    deps.py                     # get_profile dependency, template_globals helper
+    templates_loader.py         # Shared Jinja2Templates instance
+    routes/                     # dashboard, jobs, applications, companies, settings, cold_email, profile
+    templates/                  # base.html (design tokens), page templates, _row partials
 config/
   *_schema.json                 # JSON schemas (profile, resume with project_pool, etc.)
   seed_companies.json           # Verified company slugs (Greenhouse/Lever)
@@ -62,6 +69,7 @@ profiles/
     resumes/              # Tailored PDFs (named {name}_{company}.pdf)
     screenshots/          # Form screenshots for review
     progress/             # Saved state for failed applications (retry support)
+    browser_state.json    # Persisted Playwright cookies + localStorage (skips 2FA on re-runs)
 ```
 
 ## Quick Start
@@ -120,7 +128,23 @@ python main.py --profile yourname history                           # View appli
 python main.py --profile yourname update-settings     # Toggle auto_submit, change rate limit
 python main.py --profile yourname update-preferences  # Change target roles, locations, salary
 python main.py --profile yourname update-responses    # Update canned ATS answers (EEO, visa, etc.)
+
+# Local dashboard
+python main.py --profile yourname ui                  # Launch dashboard at http://127.0.0.1:8000
+python main.py --profile yourname ui --port 8765      # Custom port
 ```
+
+## Dashboard
+
+The `ui` subcommand launches a single-user, local-only FastAPI dashboard for tracking the interview pipeline. It does not submit applications — applying is still done via the `apply` command. The dashboard surfaces:
+
+- **Dashboard** — Total applied, in-pipeline, offers, rejections, tracked response rate, and the last 10 status updates. Polls every 10s.
+- **Jobs** — Browse `jobs.json` with filters for fit score / company / ATS. Per-row "Track" button creates a manual application entry from the job (for logging applications you submitted via LinkedIn, referrals, or other channels).
+- **Applications** — Sortable table with inline status dropdown (`applied → screen → technical → onsite → offer / rejected`). Manual add, edit, delete. `status_updated_at` is stamped on every status change.
+- **Companies** — Add/list companies with auto-detect ATS.
+- **Settings** — Edit `profile.json` (roles, locations, salary, levels, industries, auto_submit, rate_limit_seconds) and `responses.json` (EEO answers). Optional Claude-powered role expansion via checkbox.
+
+Stack: FastAPI + Jinja2 + HTMX + Tailwind via CDN. Bound to `127.0.0.1`, no auth. Aurora-frosted-glass design (Geist font, navy primary, pill buttons).
 
 ## Resume Optimization
 
@@ -204,10 +228,22 @@ Designed to minimize API spend — LLM calls only happen where they add real val
 
 Applying to 10 jobs with fit scoring + resume optimization costs roughly $0.25-0.40 total.
 
+## Application Status Lifecycle
+
+Applications support an extended status enum — both the CLI `apply` flow and manual UI entries flow through it:
+
+- `applied` — submitted (default for both CLI and manual)
+- `screen` / `technical` / `onsite` — interview pipeline stages
+- `offer` / `rejected` — terminal outcomes
+- `failed` / `review_pending` / `skipped` — CLI-only edge cases
+
+Each entry also carries `status_updated_at` (re-stamped on every status change) and `source` (`autoapply` for CLI submissions, `manual` for UI-tracked ones).
+
 ## Tech Stack
 
 - **Python** — core language
 - **Claude API** (Anthropic) — resume optimization, PDF parsing, custom question answering, cover letter generation
-- **Playwright** — browser automation for form filling
+- **Playwright** — browser automation for form filling, with persisted `storage_state` per profile to skip 2FA on re-runs
 - **WeasyPrint** — HTML/CSS to PDF rendering
+- **FastAPI + Jinja2 + HTMX** — local dashboard for tracking the interview pipeline
 - **Greenhouse & Lever APIs** — job discovery (public, no auth)
