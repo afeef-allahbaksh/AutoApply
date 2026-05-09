@@ -53,7 +53,12 @@
       },
       "source": {
         "type": "string",
-        "enum": ["autoapply", "manual"]
+        "enum": ["autoapply", "manual", "email"]
+      },
+      "email_thread_ids": {
+        "type": "array",
+        "items": { "type": "string" },
+        "uniqueItems": true
       }
     },
     "additionalProperties": false

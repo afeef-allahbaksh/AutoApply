@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AutoApply Inbox Sync State",
+  "type": "object",
+  "required": ["last_sync_at", "processed_message_ids"],
+  "properties": {
+    "last_sync_at": { "type": "string" },
+    "processed_message_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    }
+  },
+  "additionalProperties": false
+}

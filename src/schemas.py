@@ -39,3 +39,15 @@ def validate_resume(data: dict) -> None:
     """Validate resume data against the resume schema. Raises ValidationError on failure."""
     schema = _load_schema("resume")
     validate(instance=data, schema=schema)
+
+
+def validate_proposals(data: list) -> None:
+    """Validate inbox proposals queue. Raises ValidationError on failure."""
+    schema = _load_schema("proposals")
+    validate(instance=data, schema=schema)
+
+
+def validate_inbox_state(data: dict) -> None:
+    """Validate inbox sync state. Raises ValidationError on failure."""
+    schema = _load_schema("inbox_state")
+    validate(instance=data, schema=schema)

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from src.inbox import auth, classify, fetch, matcher
 from src.profile_loader import Profile
+from src.schemas import validate_inbox_state, validate_proposals
 
 INITIAL_LOOKBACK_DAYS = 30
 DEFAULT_MAX_MESSAGES = 200
@@ -59,6 +60,7 @@ def load_state(profile_name: str) -> dict:
 
 
 def save_state(profile_name: str, state: dict) -> None:
+    validate_inbox_state(state)
     with open(state_path(profile_name), "w") as f:
         json.dump(state, f, indent=2)
         f.write("\n")
@@ -73,6 +75,7 @@ def load_proposals(profile_name: str) -> list[dict]:
 
 
 def save_proposals(profile_name: str, proposals: list[dict]) -> None:
+    validate_proposals(proposals)
     with open(proposals_path(profile_name), "w") as f:
         json.dump(proposals, f, indent=2)
         f.write("\n")
