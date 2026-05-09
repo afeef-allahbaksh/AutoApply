@@ -87,9 +87,26 @@ def _render_kanban(request: Request, profile_name: str, search: str = "") -> HTM
 
 @router.get("/applications")
 def applications_page(request: Request, q: str = ""):
+    from src.inbox import sync as inbox_sync
+    from src.inbox import auth as gmail_auth
+
     profile_name = state.active_profile()
     apps = _load_apps(profile_name) if profile_name else []
     columns, closed = _kanban_groups(apps, q)
+    raw_proposals = inbox_sync.load_proposals(profile_name) if profile_name else []
+    # Inline-enrich ambiguous proposals so the template can render candidate labels.
+    proposals = []
+    for p in raw_proposals:
+        e = dict(p)
+        if p.get("resolution") == "ambiguous":
+            labels = []
+            for cidx in p.get("candidates", []) or []:
+                if 0 <= cidx < len(apps):
+                    role = (apps[cidx].get("role") or "")[:40]
+                    labels.append({"idx": cidx, "label": f"{apps[cidx].get('company', '?')} · {role}"})
+            e["candidate_labels"] = labels
+        proposals.append(e)
+    gmail_connected = gmail_auth.is_connected(profile_name) if profile_name else False
     return templates.TemplateResponse(
         request, "applications.html",
         template_context(
@@ -101,6 +118,10 @@ def applications_page(request: Request, q: str = ""):
             q=q,
             all_statuses=ALL_STATUSES,
             pipeline=PIPELINE,
+            proposals=proposals,
+            gmail_connected=gmail_connected,
+            sync_msg="",
+            sync_err="",
         ),
     )
 

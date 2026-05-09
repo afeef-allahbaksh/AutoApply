@@ -1,0 +1,144 @@
+"""Email-driven application updates — sync inbox, review and apply proposals."""
+from datetime import date
+
+from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse
+
+from src.applicant import _save_applications
+from src.inbox import sync as inbox_sync
+from src.profile_loader import Profile
+
+from .. import state
+from ..templates_loader import templates
+from .applications import (
+    ALL_STATUSES,
+    KANBAN_COLUMNS,
+    PIPELINE,
+    _kanban_groups,
+    _load_apps,
+)
+
+router = APIRouter()
+
+
+def _enrich_proposals(profile_name: str, proposals: list[dict]) -> list[dict]:
+    """Add human labels to ambiguous proposal candidates."""
+    profile = Profile(profile_name)
+    apps = list(profile.applications)
+    out = []
+    for p in proposals:
+        e = dict(p)
+        if p["resolution"] == "ambiguous":
+            labels = []
+            for cidx in p.get("candidates", []) or []:
+                if 0 <= cidx < len(apps):
+                    role = (apps[cidx].get("role") or "")[:40]
+                    labels.append({"idx": cidx, "label": f"{apps[cidx].get('company', '?')} · {role}"})
+            e["candidate_labels"] = labels
+        out.append(e)
+    return out
+
+
+def _render_main(request: Request, profile_name: str, sync_msg: str = "", sync_err: str = "") -> HTMLResponse:
+    """Render the entire #applications-content block (proposals + kanban)."""
+    apps = _load_apps(profile_name) if profile_name else []
+    columns, closed = _kanban_groups(apps, "")
+    proposals = _enrich_proposals(profile_name, inbox_sync.load_proposals(profile_name)) if profile_name else []
+    return templates.TemplateResponse(
+        request, "_applications_main.html",
+        {
+            "request": request,
+            "columns": columns,
+            "kanban_columns": KANBAN_COLUMNS,
+            "closed": closed,
+            "all_statuses": ALL_STATUSES,
+            "pipeline": PIPELINE,
+            "proposals": proposals,
+            "sync_msg": sync_msg,
+            "sync_err": sync_err,
+        },
+    )
+
+
+@router.post("/email/sync")
+def sync_inbox(request: Request):
+    profile_name = state.active_profile()
+    lock = state.profile_lock(profile_name)
+    if not lock.acquire(blocking=False):
+        return _render_main(request, profile_name, sync_err="Another action is in progress; try again shortly.")
+    try:
+        result = inbox_sync.sync_now(profile_name)
+    finally:
+        lock.release()
+    if not result.get("ok"):
+        return _render_main(request, profile_name, sync_err=result.get("error", "Sync failed."))
+    summary = (
+        f"Sync complete: {result.get('messages_seen', 0)} new messages, "
+        f"{result.get('new_proposals', 0)} new proposals."
+    )
+    return _render_main(request, profile_name, sync_msg=summary)
+
+
+@router.post("/email/proposals/{proposal_id}/apply")
+def apply_proposal(request: Request, proposal_id: str, target_idx: str = Form("")):
+    profile_name = state.active_profile()
+    lock = state.profile_lock(profile_name)
+    with lock:
+        proposals = inbox_sync.load_proposals(profile_name)
+        prop = next((p for p in proposals if p["id"] == proposal_id), None)
+        if not prop:
+            return _render_main(request, profile_name, sync_err="Proposal not found (already handled?).")
+
+        apps = _load_apps(profile_name)
+        today = date.today().isoformat()
+        thread_id = prop.get("thread_id") or ""
+
+        if prop["action_type"] == "new_application":
+            entry = {
+                "company": prop.get("company") or "Unknown",
+                "role": prop.get("role") or "Unknown",
+                "posting_url": prop.get("message_url") or "https://mail.google.com",
+                "date": (prop.get("message_received_at") or today)[:10],
+                "status": prop["proposed_status"],
+                "status_updated_at": today,
+                "source": "email",
+            }
+            if thread_id:
+                entry["email_thread_ids"] = [thread_id]
+            apps.append(entry)
+        else:
+            # status_update — pick target_idx
+            if target_idx.strip():
+                try:
+                    idx = int(target_idx)
+                except ValueError:
+                    return _render_main(request, profile_name, sync_err="Bad target index.")
+            elif prop.get("target_idx") is not None:
+                idx = prop["target_idx"]
+            elif prop.get("candidates"):
+                idx = prop["candidates"][0]
+            else:
+                return _render_main(request, profile_name, sync_err="No target application for this update.")
+            if not 0 <= idx < len(apps):
+                return _render_main(request, profile_name, sync_err=f"Application index {idx} no longer exists.")
+            apps[idx]["status"] = prop["proposed_status"]
+            apps[idx]["status_updated_at"] = today
+            if thread_id:
+                threads = list(apps[idx].get("email_thread_ids", []) or [])
+                if thread_id not in threads:
+                    threads.append(thread_id)
+                    apps[idx]["email_thread_ids"] = threads
+
+        _save_applications(profile_name, apps)
+        inbox_sync.save_proposals(profile_name, [p for p in proposals if p["id"] != proposal_id])
+
+    return _render_main(request, profile_name, sync_msg="Applied.")
+
+
+@router.post("/email/proposals/{proposal_id}/dismiss")
+def dismiss_proposal(request: Request, proposal_id: str):
+    profile_name = state.active_profile()
+    lock = state.profile_lock(profile_name)
+    with lock:
+        inbox_sync.remove_proposal(profile_name, proposal_id)
+    return _render_main(request, profile_name, sync_msg="Dismissed.")

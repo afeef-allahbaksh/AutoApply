@@ -1,0 +1,117 @@
+<style>
+  .proposal-card {
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-md);
+    padding: 0.75rem 1rem;
+    background: var(--canvas-raised);
+    box-shadow: var(--shadow-subtle);
+  }
+  .proposal-card .summary {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--ink-strong);
+    line-height: 1.5;
+  }
+  .proposal-card .summary .arrow {
+    color: var(--ink-soft);
+    margin: 0 0.25rem;
+  }
+  .proposal-card .meta {
+    font-size: 11.5px;
+    color: var(--ink-muted);
+    margin-top: 0.1875rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .proposal-card .meta em { font-style: italic; color: var(--ink); }
+  .proposal-card .reasoning {
+    font-size: 11px;
+    color: var(--ink-soft);
+    font-style: italic;
+    margin-top: 0.25rem;
+  }
+  .proposal-confidence {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    color: var(--ink-soft);
+    font-feature-settings: 'tnum';
+  }
+  .proposal-confidence.high { color: var(--accent); }
+  .proposal-confidence.med  { color: var(--status-warning); }
+</style>
+
+{% if sync_msg %}
+  <div class="badge badge-success" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ sync_msg }}</div>
+{% endif %}
+{% if sync_err %}
+  <div class="badge badge-danger" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ sync_err }}</div>
+{% endif %}
+
+{% if proposals %}
+  <div style="margin-bottom: 1.75rem;">
+    <div style="display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.75rem;">
+      <h2 style="font-size: 17px; margin: 0;">Inbox updates</h2>
+      <span class="kanban-col-count">{{ proposals|length }}</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+      {% for p in proposals %}
+        {% set conf_class = 'high' if p.confidence >= 0.85 else ('med' if p.confidence >= 0.7 else '') %}
+        <div class="proposal-card">
+          <div style="display: flex; align-items: flex-start; gap: 1rem;">
+            <div style="flex: 1; min-width: 0;">
+              <div class="summary">
+                {% if p.action_type == 'new_application' %}
+                  <span style="color: var(--accent);">+ New</span>
+                  {{ p.company or 'Unknown' }}{% if p.role %} · <span style="font-weight: 400; color: var(--ink-muted);">{{ p.role }}</span>{% endif %}
+                  <span class="arrow">→</span>
+                  <span class="badge badge-info">{{ p.proposed_status }}</span>
+                {% else %}
+                  {{ p.company or 'Unknown' }}{% if p.role %} · <span style="font-weight: 400; color: var(--ink-muted);">{{ p.role }}</span>{% endif %}
+                  <span class="arrow">→</span>
+                  <span class="badge badge-info">{{ p.proposed_status }}</span>
+                {% endif %}
+              </div>
+              <div class="meta" title="{{ p.message_subject }}">
+                <span class="mono">{{ (p.message_received_at or '')[:10] }}</span> · {{ p.message_from }}: <em>{{ p.message_subject }}</em>
+              </div>
+              {% if p.reasoning %}
+                <div class="reasoning">{{ p.reasoning }}</div>
+              {% endif %}
+            </div>
+            <div style="display: flex; gap: 0.375rem; align-items: center; flex-shrink: 0;">
+              <span class="proposal-confidence {{ conf_class }}">{{ "%.0f"|format(p.confidence * 100) }}%</span>
+              {% if p.message_url %}
+                <a href="{{ p.message_url }}" target="_blank" rel="noopener" class="btn-ghost" style="padding: 0.25rem 0.625rem; font-size: 11px;">View</a>
+              {% endif %}
+              {% if p.resolution == 'ambiguous' and p.candidate_labels %}
+                <form hx-post="/email/proposals/{{ p.id }}/apply"
+                      hx-target="#applications-content"
+                      hx-swap="outerHTML"
+                      style="display: inline-flex; gap: 0.25rem; align-items: center;">
+                  <select name="target_idx" class="pill-select" style="font-size: 11px; padding: 0.25rem 0.5rem;">
+                    {% for c in p.candidate_labels %}
+                      <option value="{{ c.idx }}">{{ c.label }}</option>
+                    {% endfor %}
+                  </select>
+                  <button type="submit" class="btn-primary" style="padding: 0.25rem 0.625rem; font-size: 11px;">Apply</button>
+                </form>
+              {% else %}
+                <button class="btn-primary"
+                        hx-post="/email/proposals/{{ p.id }}/apply"
+                        hx-target="#applications-content"
+                        hx-swap="outerHTML"
+                        style="padding: 0.25rem 0.625rem; font-size: 11px;">Apply</button>
+              {% endif %}
+              <button class="btn-ghost"
+                      hx-post="/email/proposals/{{ p.id }}/dismiss"
+                      hx-target="#applications-content"
+                      hx-swap="outerHTML"
+                      style="padding: 0.25rem 0.625rem; font-size: 11px;">Dismiss</button>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}

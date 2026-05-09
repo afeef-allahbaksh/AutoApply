@@ -1,8 +1,26 @@
 {% extends "base.html" %}
 {% block header_actions %}
-<button class="btn-ghost"
-        type="button"
-        onclick="document.getElementById('manual-add').style.display='block'; this.style.display='none'; document.querySelector('#manual-add input[name=company]').focus(); return false;">+ Add manual</button>
+<div style="display: flex; gap: 0.5rem; align-items: center;">
+  {% if gmail_connected %}
+    <form hx-post="/email/sync"
+          hx-target="#applications-content"
+          hx-swap="outerHTML"
+          hx-indicator="#sync-spinner"
+          style="display: inline-flex; gap: 0.5rem; align-items: center;">
+      <button type="submit" class="btn-ghost" hx-disabled-elt="this">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="m4 4 8 7 8-7"/></svg>
+        Sync inbox
+      </button>
+      <span id="sync-spinner" class="htmx-indicator spinner" style="margin-left: 0.25rem;"></span>
+    </form>
+  {% else %}
+    <a href="/settings" class="btn-ghost" title="Connect Gmail in Settings to enable inbox sync"
+       style="opacity: 0.55;">Sync inbox →</a>
+  {% endif %}
+  <button class="btn-ghost"
+          type="button"
+          onclick="document.getElementById('manual-add').style.display='block'; this.style.display='none'; document.querySelector('#manual-add input[name=company]').focus(); return false;">+ Add manual</button>
+</div>
 {% endblock %}
 
 {% block content %}
@@ -301,7 +319,7 @@
   </form>
 </div>
 
-{% include "_app_kanban.html" %}
+{% include "_applications_main.html" %}
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
 <script>

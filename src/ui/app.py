@@ -5,6 +5,7 @@ from .routes import (
     cold_email,
     companies,
     dashboard,
+    email,
     jobs,
     profile,
     settings,
@@ -19,3 +20,4 @@ app.include_router(companies.router)
 app.include_router(settings.router)
 app.include_router(cold_email.router)
 app.include_router(profile.router)
+app.include_router(email.router)
