@@ -11,6 +11,10 @@ from src.schemas import validate_inbox_state, validate_proposals
 INITIAL_LOOKBACK_DAYS = 30
 DEFAULT_MAX_MESSAGES = 200
 MIN_CONFIDENCE = 0.6
+# Cap processed_message_ids so the state.json doesn't grow unbounded over months
+# of syncs. New messages are queried by `after:` timestamp, so the dedup window
+# only needs to cover the lookback period of the most recent sync.
+MAX_PROCESSED_IDS = 5000
 
 # Prefilter — skip these obvious-noise senders before sending to Claude.
 PREFILTER_IGNORE_SENDERS = {
@@ -201,7 +205,8 @@ def sync_now(profile_name: str, max_messages: int = DEFAULT_MAX_MESSAGES) -> dic
         save_proposals(profile_name, existing_proposals + new_proposals)
 
     state["last_sync_at"] = datetime.now(timezone.utc).isoformat()
-    state["processed_message_ids"] = list(processed_ids | {m["id"] for m in new_messages})
+    combined_ids = list(processed_ids | {m["id"] for m in new_messages})
+    state["processed_message_ids"] = combined_ids[-MAX_PROCESSED_IDS:]
     save_state(profile_name, state)
 
     return {

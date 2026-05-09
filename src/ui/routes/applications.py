@@ -1,7 +1,11 @@
+import re
 from datetime import date
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
+
+# YYYY-MM-DD — schema requires this format on every entry.
+_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 from src.applicant import _save_applications
 
@@ -82,6 +86,8 @@ def add_manual(
 ):
     if not all([company.strip(), role.strip(), posting_url.strip(), date_str.strip()]):
         raise HTTPException(status_code=400, detail="company, role, posting_url, date are required")
+    if not _DATE_PATTERN.match(date_str):
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
     if status not in ALL_STATUSES:
         raise HTTPException(status_code=400, detail=f"invalid status: {status}")
 
@@ -160,6 +166,8 @@ def patch_application(
 ):
     if status not in ALL_STATUSES:
         raise HTTPException(status_code=400, detail=f"invalid status: {status}")
+    if not _DATE_PATTERN.match(date_str):
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
     profile_name = state.active_profile()
     lock = state.profile_lock(profile_name)
     with lock:

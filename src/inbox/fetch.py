@@ -1,5 +1,6 @@
 """Gmail message fetching — list + parse messages received since a timestamp."""
 import base64
+import binascii
 import html as html_module
 import re
 from datetime import datetime
@@ -18,7 +19,7 @@ def _b64url_decode(data: str) -> bytes:
     padded = data + "=" * (-len(data) % 4)
     try:
         return base64.urlsafe_b64decode(padded.encode())
-    except Exception:
+    except (binascii.Error, ValueError):
         return b""
 
 

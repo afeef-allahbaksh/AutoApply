@@ -84,4 +84,7 @@ def status(profile_name: str) -> dict:
             return {"state": "credentials_only", "email": None}
         return {"state": "connected", "email": account_email(creds)}
     except Exception as e:
-        return {"state": "error", "email": None, "error": str(e)}
+        # Exception text from google-auth can include URLs, scopes, and refresh-token
+        # fragments — render only a short, sanitized type+message in the Settings card.
+        message = type(e).__name__ + (f": {str(e)[:80]}" if str(e) else "")
+        return {"state": "error", "email": None, "error": message}

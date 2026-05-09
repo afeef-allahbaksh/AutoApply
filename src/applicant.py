@@ -140,8 +140,8 @@ def apply_to_jobs(
                 })
                 try:
                     _save_applications(profile.profile_name, applications)
-                except Exception:
-                    pass
+                except (OSError, json.JSONDecodeError) as save_err:
+                    print(f"  Warning: failed to persist crash entry: {save_err}")
                 results.append({"company": company, "role": role, "status": "failed"})
 
                 # Reset page state for next job — fresh page if current is dead

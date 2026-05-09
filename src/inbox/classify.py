@@ -99,11 +99,16 @@ def classify_batch(messages: list[dict]) -> list[dict]:
     try:
         parsed = _extract_json_array(raw)
     except Exception as e:
-        # Fail safe — treat the whole batch as "ignore" so we don't half-update state.
+        # Fall back to per-message classification so a single malformed token in
+        # the batch response doesn't drop ten emails into the ignore bucket.
+        if len(messages) > 1:
+            out = []
+            for m in messages:
+                out.extend(classify_batch([m]))
+            return out
         return [
-            {"id": m["id"], "action_type": "ignore", "company": "", "role": "",
+            {"id": messages[0]["id"], "action_type": "ignore", "company": "", "role": "",
              "status": "", "confidence": 0.0, "reasoning": f"parse error: {e}"}
-            for m in messages
         ]
 
     by_id = {entry.get("id"): entry for entry in parsed if isinstance(entry, dict)}
