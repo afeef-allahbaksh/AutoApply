@@ -12,7 +12,7 @@
       <div>
         <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Roles (comma-separated)</label>
         <textarea class="pill-input" name="roles" rows="3" style="width: 100%;">{{ profile.job_preferences.roles | join(", ") if profile.job_preferences and profile.job_preferences.roles else "" }}</textarea>
-        <label style="display: inline-flex; gap: 0.375rem; align-items: center; font-size: 11px; color: var(--color-ink-secondary); margin-top: 0.375rem;">
+        <label style="display: inline-flex; gap: 0.375rem; align-items: center; font-size: 11px; color: var(--ink-muted); margin-top: 0.375rem;">
           <input type="checkbox" name="expand" value="1"> Treat as seed roles and expand via Claude (slower)
         </label>
       </div>

@@ -1,4 +1,4 @@
-<div style="display: flex; align-items: baseline; justify-content: space-between; padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--color-glass-border);">
+<div style="display: flex; align-items: baseline; justify-content: space-between; padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--rule);">
   <div class="section-label">{{ rows|length }} of {{ total }} jobs match</div>
 </div>
 <table class="app-table">
@@ -21,5 +21,5 @@
   </tbody>
 </table>
 {% if not rows %}
-  <p style="padding: 1.5rem; color: var(--color-ink-secondary);">No jobs match the filters — try lowering Min fit or running Refresh.</p>
+  <p style="padding: 1.5rem; color: var(--ink-muted);">No jobs match the filters — try lowering Min fit or running Refresh.</p>
 {% endif %}

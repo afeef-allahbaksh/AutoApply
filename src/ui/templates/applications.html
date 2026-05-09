@@ -45,7 +45,7 @@
       </tr>
     </thead>
     <tbody id="apps-tbody">
-      <tr id="manual-add" style="display: none; background: var(--color-glass-tertiary);">
+      <tr id="manual-add" style="display: none; background: var(--canvas-sunken);">
         <td colspan="10" style="padding: 1rem;">
           <form hx-post="/applications"
                 hx-target="#apps-tbody"
@@ -94,7 +94,7 @@
     </tbody>
   </table>
   {% if not rows %}
-    <p style="padding: 1.5rem; color: var(--color-ink-secondary);">No applications match — adjust filters or add one manually.</p>
+    <p style="padding: 1.5rem; color: var(--ink-muted);">No applications match — adjust filters or add one manually.</p>
   {% endif %}
 </div>
 {% endblock %}
