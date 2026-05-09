@@ -1,7 +1,62 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="glass-card" style="padding: 1.5rem;">
-  <div class="section-label">Coming next</div>
-  <p style="margin-top: 0.5rem;">Companies list lands in step 7.</p>
+<div style="display: grid; grid-template-columns: 1fr 360px; gap: 1.5rem; align-items: start;">
+  <div class="glass-card" style="padding: 0; overflow: hidden;">
+    <div style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-glass-border);">
+      <div class="section-label">{{ companies|length }} companies tracked</div>
+    </div>
+    {% if companies %}
+      <table class="app-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Slug</th>
+            <th>ATS</th>
+            <th>Careers</th>
+            <th>Added</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in companies %}
+            <tr>
+              <td style="font-weight: 500;">{{ c.name }}</td>
+              <td style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: var(--color-ink-secondary);">{{ c.slug }}</td>
+              <td><span class="badge badge-neutral">{{ c.ats }}</span></td>
+              <td><a href="{{ c.careers_url }}" target="_blank" rel="noopener" style="color: var(--color-primary); text-decoration: underline;">link</a></td>
+              <td style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: var(--color-ink-secondary);">{{ c.added or '—' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p style="padding: 1.5rem; color: var(--color-ink-secondary);">No companies yet — add one with the form on the right.</p>
+    {% endif %}
+  </div>
+
+  <div class="glass-card" style="padding: 1.5rem;">
+    <div class="section-label" style="margin-bottom: 0.75rem;">Add company</div>
+    {% if added %}
+      <div class="badge badge-success" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ added }}</div>
+    {% endif %}
+    {% if error %}
+      <div class="badge badge-danger" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/companies" style="display: flex; flex-direction: column; gap: 0.875rem;">
+      <div>
+        <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Slug</label>
+        <input class="pill-input" name="slug" placeholder="e.g. anthropic" required style="width: 100%;">
+        <p style="font-size: 11px; color: var(--color-ink-secondary); margin-top: 0.25rem;">The URL-safe identifier from greenhouse.io or lever.co.</p>
+      </div>
+      <div>
+        <label class="section-label" style="display: block; margin-bottom: 0.25rem;">ATS</label>
+        <select class="pill-select" name="ats" style="width: 100%;">
+          <option value="auto" selected>auto-detect</option>
+          <option value="greenhouse">greenhouse</option>
+          <option value="lever">lever</option>
+        </select>
+      </div>
+      <button type="submit" class="btn-primary" style="justify-content: center;">Add</button>
+    </form>
+  </div>
 </div>
 {% endblock %}
