@@ -1,0 +1,33 @@
+<tr id="job-row-{{ row._idx }}">
+  <td style="font-weight: 500;">{{ row.company }}</td>
+  <td style="color: var(--color-ink-primary); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ row.title }}">{{ row.title }}</td>
+  <td style="color: var(--color-ink-secondary);">{{ row.location or '—' }}</td>
+  <td>{% if row.fit_score %}<span class="badge {% if row.fit_score >= 4 %}badge-success{% elif row.fit_score >= 3 %}badge-info{% else %}badge-neutral{% endif %}">{{ row.fit_score }}/5</span>{% else %}<span style="color: var(--color-ink-secondary);">—</span>{% endif %}</td>
+  <td style="color: var(--color-ink-secondary);">{{ row.relevance_score or '—' }}</td>
+  <td><span class="badge badge-neutral">{{ row.ats }}</span></td>
+  <td>
+    <a href="{{ row.posting_url }}" target="_blank" rel="noopener" style="color: var(--color-primary); text-decoration: underline;">link</a>
+  </td>
+  <td style="text-align: right; white-space: nowrap;">
+    {% if tracked_now %}
+      <span class="badge badge-success">tracked as {{ tracked_status }}</span>
+    {% else %}
+      <form hx-post="/jobs/{{ row._idx }}/track"
+            hx-target="#job-row-{{ row._idx }}"
+            hx-swap="outerHTML"
+            hx-disabled-elt="find button"
+            style="display: inline-flex; gap: 0.5rem; align-items: center;">
+        <select name="status" class="pill-select" style="padding: 0.25rem 0.625rem; font-size: 12px;">
+          <option value="applied" selected>applied</option>
+          <option value="screen">screen</option>
+          <option value="technical">technical</option>
+          <option value="onsite">onsite</option>
+          <option value="offer">offer</option>
+          <option value="rejected">rejected</option>
+        </select>
+        <button type="submit" class="btn-primary" style="padding: 0.25rem 0.875rem; font-size: 12px;">Track</button>
+        <span class="htmx-indicator spinner"></span>
+      </form>
+    {% endif %}
+  </td>
+</tr>
