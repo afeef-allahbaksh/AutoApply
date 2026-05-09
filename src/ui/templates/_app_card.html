@@ -1,0 +1,67 @@
+{% set is_pipeline = row.status in pipeline %}
+{% set has_next = is_pipeline and pipeline.index(row.status) < pipeline|length - 1 %}
+{% set has_prev = is_pipeline and pipeline.index(row.status) > 0 %}
+<article class="kanban-card" id="app-card-{{ row._idx }}">
+  <div class="kanban-card-head">
+    <h3 class="kanban-card-company">{{ row.company }}</h3>
+    <span class="badge badge-neutral" title="source">{{ row.source or 'autoapply' }}</span>
+  </div>
+  <p class="kanban-card-role" title="{{ row.role }}">{{ row.role }}</p>
+
+  <div class="kanban-card-meta">
+    <span class="mono">{{ row.status_updated_at or row.date }}</span>
+    {% if row.fit_score %}<span class="kanban-card-fit">{{ row.fit_score }}/5 fit</span>{% endif %}
+    {% if row.posting_url %}
+      <a href="{{ row.posting_url }}" target="_blank" rel="noopener" class="kanban-card-link" title="open posting">↗</a>
+    {% endif %}
+  </div>
+
+  {% if row.notes %}
+    <p class="kanban-card-notes" title="{{ row.notes }}">{{ row.notes }}</p>
+  {% endif %}
+
+  <div class="kanban-card-foot">
+    <div class="kanban-card-arrows">
+      <button type="button"
+              class="arrow"
+              {% if not has_prev %}disabled{% endif %}
+              hx-post="/applications/{{ row._idx }}/advance"
+              hx-vals='{"direction": "prev"}'
+              hx-target="#kanban-grid"
+              hx-swap="outerHTML"
+              title="back one stage">←</button>
+      <button type="button"
+              class="arrow"
+              {% if not has_next %}disabled{% endif %}
+              hx-post="/applications/{{ row._idx }}/advance"
+              hx-vals='{"direction": "next"}'
+              hx-target="#kanban-grid"
+              hx-swap="outerHTML"
+              title="advance one stage">→</button>
+    </div>
+    <div class="kanban-card-actions">
+      {% if row.status != 'rejected' %}
+        <button type="button"
+                class="text-link"
+                hx-patch="/applications/{{ row._idx }}/status"
+                hx-vals='{"new_status": "rejected"}'
+                hx-target="#kanban-grid"
+                hx-swap="outerHTML"
+                title="mark rejected">reject</button>
+      {% endif %}
+      <button type="button"
+              class="text-link"
+              hx-get="/applications/{{ row._idx }}/edit"
+              hx-target="#app-card-{{ row._idx }}"
+              hx-swap="outerHTML"
+              title="edit">edit</button>
+      <button type="button"
+              class="text-link danger"
+              hx-delete="/applications/{{ row._idx }}"
+              hx-target="#kanban-grid"
+              hx-swap="outerHTML"
+              hx-confirm="Delete this application?"
+              title="delete">del</button>
+    </div>
+  </div>
+</article>

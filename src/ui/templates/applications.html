@@ -1,100 +1,284 @@
 {% extends "base.html" %}
 {% block header_actions %}
 <button class="btn-primary"
-        hx-get="/applications/-1/new"
-        onclick="document.getElementById('manual-add').style.display='table-row'; this.style.display='none'; return false;">
-  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-  Add manual application
+        type="button"
+        onclick="document.getElementById('manual-add').style.display='block'; this.style.display='none'; return false;">
+  + Add manual application
 </button>
 {% endblock %}
 
 {% block content %}
-<div class="glass-card" style="padding: 1rem 1.25rem; margin-bottom: 1rem;">
-  <form method="get" action="/applications" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
-    <input class="pill-input" name="q" placeholder="Search company or role…" value="{{ q }}" style="min-width: 240px;">
-    <input type="hidden" name="sort" value="{{ sort }}">
-    <input type="hidden" name="dir" value="{{ dir }}">
-    <div style="display: flex; gap: 0.375rem; flex-wrap: wrap;">
-      {% for s in all_statuses %}
-        <label class="badge {% if s in status_filter %}badge-info{% else %}badge-neutral{% endif %}" style="cursor: pointer; padding: 0.25rem 0.625rem;">
-          <input type="checkbox" name="status" value="{{ s }}" {% if s in status_filter %}checked{% endif %} style="margin-right: 0.25rem;">
-          {{ s }}
-        </label>
-      {% endfor %}
-    </div>
-    <button type="submit" class="btn-ghost">Filter</button>
-    <a href="/applications" class="btn-ghost">Reset</a>
+<style>
+  .kanban-toolbar {
+    display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;
+    padding-bottom: 1rem;
+    margin-bottom: 1.25rem;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .manual-add-card {
+    background: var(--canvas-raised);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-md);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: var(--shadow-subtle);
+  }
+
+  .kanban-board {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(220px, 1fr));
+    gap: 1rem;
+    align-items: start;
+  }
+
+  @media (max-width: 1280px) {
+    .kanban-board {
+      grid-template-columns: repeat(6, 240px);
+      overflow-x: auto;
+      padding-bottom: 0.5rem;
+    }
+  }
+
+  .kanban-col {
+    display: flex; flex-direction: column; gap: 0.625rem;
+    min-width: 0;
+  }
+  .kanban-col-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding-bottom: 0.625rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .kanban-col-title {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    margin: 0;
+    color: var(--ink-strong);
+  }
+  .kanban-col-rejected .kanban-col-title { color: var(--ink-muted); font-style: italic; }
+  .kanban-col-offer    .kanban-col-title { color: var(--accent); }
+
+  .kanban-col-count {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .kanban-col-body {
+    display: flex; flex-direction: column; gap: 0.625rem;
+  }
+  .kanban-col-empty {
+    font-family: 'Fraunces', Georgia, serif;
+    color: var(--ink-soft);
+    font-style: italic;
+    font-size: 14px;
+    margin: 0.5rem 0 0 0;
+    padding: 0.25rem 0;
+  }
+
+  .kanban-card {
+    background: var(--canvas-raised);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-md);
+    padding: 0.875rem 0.875rem 0.5rem 0.875rem;
+    display: flex; flex-direction: column; gap: 0.375rem;
+    box-shadow: var(--shadow-subtle);
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .kanban-card:hover {
+    border-color: var(--rule-bold);
+    box-shadow: var(--shadow-raised);
+  }
+  .kanban-card-editing {
+    border-color: var(--ink-strong);
+    background: var(--canvas-sunken);
+  }
+
+  .kanban-card-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem;
+  }
+  .kanban-card-company {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--ink-strong);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .kanban-card-role {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--ink-muted);
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .kanban-card-meta {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 11.5px;
+    color: var(--ink-muted);
+  }
+  .kanban-card-fit {
+    font-size: 10.5px;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .kanban-card-link {
+    margin-left: auto;
+    color: var(--ink-muted);
+    font-size: 13px;
+    text-decoration: none;
+  }
+  .kanban-card-link:hover { color: var(--accent); }
+
+  .kanban-card-notes {
+    margin: 0.125rem 0 0 0;
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    font-style: italic;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .kanban-card-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 0.25rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--rule);
+  }
+  .kanban-card-arrows { display: flex; gap: 0.125rem; }
+  .kanban-card-arrows .arrow {
+    width: 22px; height: 22px;
+    border: 1px solid var(--rule-bold);
+    background: transparent;
+    border-radius: 3px;
+    color: var(--ink-muted);
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+    font-family: inherit;
+  }
+  .kanban-card-arrows .arrow:hover:not(:disabled) {
+    border-color: var(--ink);
+    color: var(--ink-strong);
+    background: var(--canvas-sunken);
+  }
+  .kanban-card-arrows .arrow:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .kanban-card-actions {
+    display: flex; gap: 0.5rem;
+    font-size: 11px;
+  }
+  .text-link {
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: inherit;
+    font-size: 11px;
+    color: var(--ink-muted);
+    cursor: pointer;
+    transition: color 120ms ease;
+  }
+  .text-link:hover { color: var(--ink-strong); }
+  .text-link.danger:hover { color: var(--status-danger); }
+
+  .kanban-closed {
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+  }
+  .kanban-closed > summary {
+    display: flex; align-items: baseline; gap: 0.625rem;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+  .kanban-closed > summary::-webkit-details-marker { display: none; }
+  .kanban-closed > summary::before {
+    content: "▸";
+    font-size: 10px;
+    color: var(--ink-muted);
+    transition: transform 120ms ease;
+    display: inline-block;
+  }
+  .kanban-closed[open] > summary::before { transform: rotate(90deg); }
+
+  .kanban-closed-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.625rem;
+    margin-top: 1rem;
+  }
+</style>
+
+<div class="kanban-toolbar">
+  <form method="get" action="/applications" style="display: flex; gap: 0.5rem; align-items: center;">
+    <input class="pill-input" name="q" placeholder="Filter by company or role…" value="{{ q }}" style="min-width: 280px;">
+    <button type="submit" class="btn-ghost" style="padding: 0.375rem 0.875rem; font-size: 12px;">Filter</button>
+    {% if q %}<a href="/applications" class="text-link" style="margin-left: 0.25rem;">clear</a>{% endif %}
   </form>
 </div>
 
-<div class="glass-card" style="padding: 0; overflow: hidden;">
-  <table class="app-table">
-    <thead>
-      <tr>
-        {% set sort_dir = 'asc' if (sort == 'status' and dir == 'desc') else 'desc' %}
-        <th><a href="?sort=status&dir={{ 'asc' if sort=='status' and dir=='desc' else 'desc' }}&q={{ q }}{% for s in status_filter %}&status={{ s }}{% endfor %}" style="text-decoration: none; color: inherit;">Status</a></th>
-        <th><a href="?sort=company&dir={{ 'asc' if sort=='company' and dir=='desc' else 'desc' }}&q={{ q }}{% for s in status_filter %}&status={{ s }}{% endfor %}" style="text-decoration: none; color: inherit;">Company</a></th>
-        <th>Role</th>
-        <th><a href="?sort=date&dir={{ 'asc' if sort=='date' and dir=='desc' else 'desc' }}&q={{ q }}{% for s in status_filter %}&status={{ s }}{% endfor %}" style="text-decoration: none; color: inherit;">Date</a></th>
-        <th><a href="?sort=fit&dir={{ 'asc' if sort=='fit' and dir=='desc' else 'desc' }}&q={{ q }}{% for s in status_filter %}&status={{ s }}{% endfor %}" style="text-decoration: none; color: inherit;">Fit</a></th>
-        <th><a href="?sort=source&dir={{ 'asc' if sort=='source' and dir=='desc' else 'desc' }}&q={{ q }}{% for s in status_filter %}&status={{ s }}{% endfor %}" style="text-decoration: none; color: inherit;">Source</a></th>
-        <th>Link</th>
-        <th>Resume</th>
-        <th>Notes</th>
-        <th style="text-align: right;">Actions</th>
-      </tr>
-    </thead>
-    <tbody id="apps-tbody">
-      <tr id="manual-add" style="display: none; background: var(--canvas-sunken);">
-        <td colspan="10" style="padding: 1rem;">
-          <form hx-post="/applications"
-                hx-target="#apps-tbody"
-                hx-swap="beforeend"
-                hx-on::after-request="this.reset(); document.getElementById('manual-add').style.display='none'; document.querySelector('header button.btn-primary').style.display='inline-flex';"
-                style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; align-items: end;">
-            <div>
-              <div class="section-label" style="margin-bottom: 0.25rem;">Company</div>
-              <input class="pill-input" name="company" required style="width: 100%;">
-            </div>
-            <div>
-              <div class="section-label" style="margin-bottom: 0.25rem;">Role</div>
-              <input class="pill-input" name="role" required style="width: 100%;">
-            </div>
-            <div>
-              <div class="section-label" style="margin-bottom: 0.25rem;">Posting URL</div>
-              <input class="pill-input" name="posting_url" required style="width: 100%;">
-            </div>
-            <div>
-              <div class="section-label" style="margin-bottom: 0.25rem;">Date</div>
-              <input class="pill-input" name="date" type="date" required style="width: 100%;">
-            </div>
-            <div>
-              <div class="section-label" style="margin-bottom: 0.25rem;">Status</div>
-              <select class="pill-select" name="status" style="width: 100%;">
-                {% for s in all_statuses %}
-                  <option value="{{ s }}" {% if s == 'applied' %}selected{% endif %}>{{ s }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div style="grid-column: span 3;">
-              <div class="section-label" style="margin-bottom: 0.25rem;">Notes</div>
-              <input class="pill-input" name="notes" placeholder="Optional" style="width: 100%;">
-            </div>
-            <div style="grid-column: span 4; display: flex; gap: 0.5rem; justify-content: flex-end;">
-              <button type="button" class="btn-ghost"
-                      onclick="document.getElementById('manual-add').style.display='none'; document.querySelector('header button.btn-primary').style.display='inline-flex';">Cancel</button>
-              <button type="submit" class="btn-primary">Save</button>
-            </div>
-          </form>
-        </td>
-      </tr>
-      {% for row in rows %}
-        {% include "_app_row.html" %}
-      {% endfor %}
-    </tbody>
-  </table>
-  {% if not rows %}
-    <p style="padding: 1.5rem; color: var(--ink-muted);">No applications match — adjust filters or add one manually.</p>
-  {% endif %}
+<div id="manual-add" class="manual-add-card" style="display: none;">
+  <div class="section-label" style="margin-bottom: 0.875rem;">New manual application</div>
+  <form hx-post="/applications"
+        hx-target="#kanban-grid"
+        hx-swap="outerHTML"
+        hx-on::after-request="this.reset(); document.getElementById('manual-add').style.display='none'; document.querySelector('header.page-head button.btn-primary').style.display='inline-flex';"
+        style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; align-items: end;">
+    <div>
+      <div class="section-label" style="margin-bottom: 0.25rem;">Company</div>
+      <input class="pill-input" name="company" required style="width: 100%;">
+    </div>
+    <div>
+      <div class="section-label" style="margin-bottom: 0.25rem;">Role</div>
+      <input class="pill-input" name="role" required style="width: 100%;">
+    </div>
+    <div>
+      <div class="section-label" style="margin-bottom: 0.25rem;">Posting URL</div>
+      <input class="pill-input" name="posting_url" required style="width: 100%;">
+    </div>
+    <div>
+      <div class="section-label" style="margin-bottom: 0.25rem;">Date</div>
+      <input class="pill-input" name="date" type="date" required style="width: 100%;">
+    </div>
+    <div>
+      <div class="section-label" style="margin-bottom: 0.25rem;">Status</div>
+      <select class="pill-select" name="status" style="width: 100%;">
+        {% for s in all_statuses %}
+          <option value="{{ s }}" {% if s == 'applied' %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="grid-column: span 3;">
+      <div class="section-label" style="margin-bottom: 0.25rem;">Notes</div>
+      <input class="pill-input" name="notes" placeholder="Optional" style="width: 100%;">
+    </div>
+    <div style="grid-column: span 4; display: flex; gap: 0.5rem; justify-content: flex-end;">
+      <button type="button"
+              class="btn-ghost"
+              onclick="document.getElementById('manual-add').style.display='none'; document.querySelector('header.page-head button.btn-primary').style.display='inline-flex';">Cancel</button>
+      <button type="submit" class="btn-primary">Save</button>
+    </div>
+  </form>
 </div>
+
+{% include "_app_kanban.html" %}
 {% endblock %}

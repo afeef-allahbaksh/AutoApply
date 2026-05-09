@@ -1,0 +1,46 @@
+<article class="kanban-card kanban-card-editing" id="app-card-{{ row._idx }}">
+  <form hx-patch="/applications/{{ row._idx }}"
+        hx-target="#kanban-grid"
+        hx-swap="outerHTML"
+        style="display: flex; flex-direction: column; gap: 0.5rem;">
+    <div>
+      <div class="section-label" style="margin-bottom: 0.125rem;">Company</div>
+      <input class="pill-input" name="company" value="{{ row.company }}" required style="width: 100%;">
+    </div>
+    <div>
+      <div class="section-label" style="margin-bottom: 0.125rem;">Role</div>
+      <input class="pill-input" name="role" value="{{ row.role }}" required style="width: 100%;">
+    </div>
+    <div>
+      <div class="section-label" style="margin-bottom: 0.125rem;">Posting URL</div>
+      <input class="pill-input" name="posting_url" value="{{ row.posting_url }}" required style="width: 100%;">
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+      <div>
+        <div class="section-label" style="margin-bottom: 0.125rem;">Date</div>
+        <input class="pill-input" name="date" type="date" value="{{ row.date }}" required style="width: 100%;">
+      </div>
+      <div>
+        <div class="section-label" style="margin-bottom: 0.125rem;">Status</div>
+        <select class="pill-select" name="status" style="width: 100%;">
+          {% for s in all_statuses %}
+            <option value="{{ s }}" {% if s == row.status %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div>
+      <div class="section-label" style="margin-bottom: 0.125rem;">Notes</div>
+      <input class="pill-input" name="notes" value="{{ row.notes or '' }}" style="width: 100%;">
+    </div>
+    <div style="display: flex; gap: 0.375rem; justify-content: flex-end; margin-top: 0.25rem;">
+      <button type="button"
+              class="btn-ghost"
+              hx-get="/applications/{{ row._idx }}/card"
+              hx-target="#app-card-{{ row._idx }}"
+              hx-swap="outerHTML"
+              style="padding: 0.375rem 0.75rem; font-size: 12px;">Cancel</button>
+      <button type="submit" class="btn-primary" style="padding: 0.375rem 0.75rem; font-size: 12px;">Save</button>
+    </div>
+  </form>
+</article>

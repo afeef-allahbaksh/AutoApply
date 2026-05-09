@@ -1,7 +1,7 @@
 from datetime import date
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 
 from src.applicant import _save_applications
 from src.profile_loader import Profile
@@ -17,6 +17,11 @@ ALL_STATUSES = [
     "rejected", "failed", "review_pending", "skipped",
 ]
 
+# Linear interview pipeline. Cards advance left-to-right.
+PIPELINE = ["applied", "screen", "technical", "onsite", "offer"]
+KANBAN_COLUMNS = PIPELINE + ["rejected"]
+CLOSED_STATUSES = ["failed", "review_pending", "skipped"]
+
 
 def _load_apps(profile_name: str) -> list:
     try:
@@ -26,53 +31,76 @@ def _load_apps(profile_name: str) -> list:
     return list(profile.applications)
 
 
-def _sorted_filtered(apps: list, sort: str, direction: str, status_filter: list[str], search: str) -> list:
+def _next_status(current: str) -> str | None:
+    if current in PIPELINE:
+        i = PIPELINE.index(current)
+        return PIPELINE[i + 1] if i + 1 < len(PIPELINE) else None
+    return None
+
+
+def _prev_status(current: str) -> str | None:
+    if current in PIPELINE:
+        i = PIPELINE.index(current)
+        return PIPELINE[i - 1] if i > 0 else None
+    return None
+
+
+def _kanban_groups(apps: list, search: str) -> tuple[dict, list]:
     enriched = [{**a, "_idx": i} for i, a in enumerate(apps)]
-    if status_filter:
-        enriched = [a for a in enriched if a.get("status") in status_filter]
     if search:
         s = search.lower()
         enriched = [a for a in enriched if s in a.get("company", "").lower() or s in a.get("role", "").lower()]
 
-    def key(a):
-        if sort == "company":
-            return (a.get("company") or "").lower()
-        if sort == "role":
-            return (a.get("role") or "").lower()
-        if sort == "fit":
-            return a.get("fit_score") or 0
-        if sort == "status":
-            return a.get("status") or ""
-        if sort == "source":
-            return a.get("source") or ""
+    columns = {col: [] for col in KANBAN_COLUMNS}
+    closed = []
+    for a in enriched:
+        st = a.get("status")
+        if st in columns:
+            columns[st].append(a)
+        else:
+            closed.append(a)
+
+    def sort_key(a):
         return a.get("status_updated_at") or a.get("date") or ""
 
-    enriched.sort(key=key, reverse=(direction == "desc"))
-    return enriched
+    for col in columns:
+        columns[col].sort(key=sort_key, reverse=True)
+    closed.sort(key=sort_key, reverse=True)
+    return columns, closed
+
+
+def _render_kanban(request: Request, profile_name: str, search: str = "") -> HTMLResponse:
+    apps = _load_apps(profile_name) if profile_name else []
+    columns, closed = _kanban_groups(apps, search)
+    return templates.TemplateResponse(
+        request, "_app_kanban.html",
+        {
+            "request": request,
+            "columns": columns,
+            "kanban_columns": KANBAN_COLUMNS,
+            "closed": closed,
+            "all_statuses": ALL_STATUSES,
+            "pipeline": PIPELINE,
+        },
+    )
 
 
 @router.get("/applications")
-def applications_page(
-    request: Request,
-    sort: str = "date",
-    dir: str = "desc",
-    status: list[str] | None = None,
-    q: str = "",
-):
+def applications_page(request: Request, q: str = ""):
     profile_name = state.active_profile()
     apps = _load_apps(profile_name) if profile_name else []
-    rows = _sorted_filtered(apps, sort, dir, status or [], q)
+    columns, closed = _kanban_groups(apps, q)
     return templates.TemplateResponse(
         request, "applications.html",
         template_context(
             request,
             page_title="Applications",
-            rows=rows,
-            sort=sort,
-            dir=dir,
-            status_filter=status or [],
+            columns=columns,
+            kanban_columns=KANBAN_COLUMNS,
+            closed=closed,
             q=q,
             all_statuses=ALL_STATUSES,
+            pipeline=PIPELINE,
         ),
     )
 
@@ -109,12 +137,7 @@ def add_manual(
             entry["notes"] = notes.strip()
         apps.append(entry)
         _save_applications(profile_name, apps)
-        new_idx = len(apps) - 1
-    row = {**entry, "_idx": new_idx}
-    return templates.TemplateResponse(
-        request, "_app_row.html",
-        {"request": request, "row": row, "all_statuses": ALL_STATUSES},
-    )
+    return _render_kanban(request, profile_name)
 
 
 @router.patch("/applications/{idx}/status")
@@ -130,11 +153,30 @@ def patch_status(request: Request, idx: int, new_status: str = Form(...)):
         apps[idx]["status"] = new_status
         apps[idx]["status_updated_at"] = date.today().isoformat()
         _save_applications(profile_name, apps)
-        row = {**apps[idx], "_idx": idx}
-    return templates.TemplateResponse(
-        request, "_app_row.html",
-        {"request": request, "row": row, "all_statuses": ALL_STATUSES},
-    )
+    return _render_kanban(request, profile_name)
+
+
+@router.post("/applications/{idx}/advance")
+def advance_status(request: Request, idx: int, direction: str = Form(...)):
+    profile_name = state.active_profile()
+    lock = state.profile_lock(profile_name)
+    with lock:
+        apps = _load_apps(profile_name)
+        if not 0 <= idx < len(apps):
+            raise HTTPException(status_code=404, detail="application not found")
+        current = apps[idx].get("status", "applied")
+        if direction == "next":
+            new_status = _next_status(current)
+        elif direction == "prev":
+            new_status = _prev_status(current)
+        else:
+            raise HTTPException(status_code=400, detail="direction must be next|prev")
+        if not new_status:
+            return _render_kanban(request, profile_name)
+        apps[idx]["status"] = new_status
+        apps[idx]["status_updated_at"] = date.today().isoformat()
+        _save_applications(profile_name, apps)
+    return _render_kanban(request, profile_name)
 
 
 @router.get("/applications/{idx}/edit")
@@ -145,21 +187,21 @@ def edit_form(request: Request, idx: int):
         raise HTTPException(status_code=404, detail="application not found")
     row = {**apps[idx], "_idx": idx}
     return templates.TemplateResponse(
-        request, "_app_edit.html",
+        request, "_app_edit_card.html",
         {"request": request, "row": row, "all_statuses": ALL_STATUSES},
     )
 
 
-@router.get("/applications/{idx}/row")
-def get_row(request: Request, idx: int):
+@router.get("/applications/{idx}/card")
+def get_card(request: Request, idx: int):
     profile_name = state.active_profile()
     apps = _load_apps(profile_name)
     if not 0 <= idx < len(apps):
         raise HTTPException(status_code=404, detail="application not found")
     row = {**apps[idx], "_idx": idx}
     return templates.TemplateResponse(
-        request, "_app_row.html",
-        {"request": request, "row": row, "all_statuses": ALL_STATUSES},
+        request, "_app_card.html",
+        {"request": request, "row": row, "all_statuses": ALL_STATUSES, "pipeline": PIPELINE},
     )
 
 
@@ -198,15 +240,11 @@ def patch_application(
         else:
             existing.pop("notes", None)
         _save_applications(profile_name, apps)
-        row = {**existing, "_idx": idx}
-    return templates.TemplateResponse(
-        request, "_app_row.html",
-        {"request": request, "row": row, "all_statuses": ALL_STATUSES},
-    )
+    return _render_kanban(request, profile_name)
 
 
 @router.delete("/applications/{idx}")
-def delete_application(idx: int):
+def delete_application(request: Request, idx: int):
     profile_name = state.active_profile()
     lock = state.profile_lock(profile_name)
     with lock:
@@ -215,4 +253,4 @@ def delete_application(idx: int):
             raise HTTPException(status_code=404, detail="application not found")
         apps.pop(idx)
         _save_applications(profile_name, apps)
-    return Response(status_code=200, content="")
+    return _render_kanban(request, profile_name)
