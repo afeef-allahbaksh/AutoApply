@@ -1,4 +1,4 @@
-<article class="kanban-card kanban-card-editing" id="app-card-{{ row._idx }}">
+<article class="kanban-card kanban-card-editing" id="app-card-{{ row._idx }}" data-app-idx="{{ row._idx }}" data-non-draggable="1">
   <form hx-patch="/applications/{{ row._idx }}"
         hx-target="#kanban-grid"
         hx-swap="outerHTML"
