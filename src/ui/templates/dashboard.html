@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="glass-card" style="padding: 1.5rem;">
-  <div class="section-label">Coming next</div>
-  <p style="margin-top: 0.5rem;">Dashboard metrics will land in step 4.</p>
+<div hx-get="/_metrics" hx-trigger="every 10s" hx-swap="innerHTML">
+  {% include "_metrics.html" %}
 </div>
 {% endblock %}
