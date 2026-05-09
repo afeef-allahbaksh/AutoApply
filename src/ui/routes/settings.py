@@ -1,7 +1,9 @@
 import json
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import RedirectResponse
 
+from src.inbox import auth as gmail_auth
 from src.profile_loader import PROFILES_DIR
 from src.role_expander import expand_roles
 from src.schemas import validate_profile, validate_responses
@@ -56,10 +58,13 @@ def settings_page(
     profile_err: str = "",
     responses_msg: str = "",
     responses_err: str = "",
+    gmail_msg: str = "",
+    gmail_err: str = "",
 ):
     profile_name = state.active_profile()
     profile_data = _read_profile(profile_name) if profile_name else {}
     responses_data = _read_responses(profile_name) if profile_name else {}
+    gmail_status = gmail_auth.status(profile_name) if profile_name else {"state": "no_credentials", "email": None}
     return templates.TemplateResponse(
         request, "settings.html",
         template_context(
@@ -71,8 +76,55 @@ def settings_page(
             profile_err=profile_err,
             responses_msg=responses_msg,
             responses_err=responses_err,
+            gmail=gmail_status,
+            gmail_msg=gmail_msg,
+            gmail_err=gmail_err,
         ),
     )
+
+
+@router.post("/settings/gmail/credentials")
+async def upload_gmail_credentials(
+    request: Request,
+    file: UploadFile = File(...),
+):
+    profile_name = state.active_profile()
+    contents = await file.read()
+    try:
+        parsed = json.loads(contents.decode())
+        if not (parsed.get("installed") or parsed.get("web")):
+            return RedirectResponse(
+                url="/settings?gmail_err=Not+a+valid+OAuth+client+JSON+(missing+'installed'+or+'web'+key).",
+                status_code=303,
+            )
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return RedirectResponse(
+            url="/settings?gmail_err=Could+not+parse+credentials.json+(invalid+JSON).",
+            status_code=303,
+        )
+    cp = gmail_auth.credentials_path(profile_name)
+    cp.write_bytes(contents)
+    return RedirectResponse(url="/settings?gmail_msg=credentials.json+saved.+Click+Connect+to+authorize.", status_code=303)
+
+
+@router.post("/settings/gmail/connect")
+def connect_gmail():
+    profile_name = state.active_profile()
+    if not gmail_auth.has_credentials(profile_name):
+        return RedirectResponse(url="/settings?gmail_err=Upload+credentials.json+first.", status_code=303)
+    try:
+        creds = gmail_auth.run_oauth_flow(profile_name)
+        email = gmail_auth.account_email(creds)
+        return RedirectResponse(url=f"/settings?gmail_msg=Connected+as+{email}", status_code=303)
+    except Exception as e:
+        return RedirectResponse(url=f"/settings?gmail_err=Auth+failed:+{str(e)[:120]}", status_code=303)
+
+
+@router.post("/settings/gmail/disconnect")
+def disconnect_gmail():
+    profile_name = state.active_profile()
+    gmail_auth.disconnect(profile_name)
+    return RedirectResponse(url="/settings?gmail_msg=Disconnected.+Token+deleted.", status_code=303)
 
 
 @router.post("/settings/profile")

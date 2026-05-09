@@ -1,5 +1,58 @@
 {% extends "base.html" %}
 {% block content %}
+
+<div class="glass-card" style="padding: 1.5rem; margin-bottom: 1.5rem;">
+  <div style="display: flex; align-items: baseline; gap: 1rem; margin-bottom: 0.875rem;">
+    <div class="section-label">Gmail integration</div>
+    {% if gmail.state == 'connected' %}
+      <span class="badge badge-success">Connected · {{ gmail.email }}</span>
+    {% elif gmail.state == 'credentials_only' %}
+      <span class="badge badge-warning">Credentials uploaded — not connected</span>
+    {% elif gmail.state == 'error' %}
+      <span class="badge badge-danger">Error: {{ gmail.error }}</span>
+    {% else %}
+      <span class="badge badge-neutral">Not configured</span>
+    {% endif %}
+  </div>
+
+  {% if gmail_msg %}<div class="badge badge-success" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ gmail_msg }}</div>{% endif %}
+  {% if gmail_err %}<div class="badge badge-danger" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ gmail_err }}</div>{% endif %}
+
+  <p style="font-size: 12.5px; color: var(--ink-muted); line-height: 1.6; margin: 0 0 1rem 0; max-width: 720px;">
+    Connect a Google account to scrape application status updates from your inbox. Read-only scope —
+    AutoApply never sends or modifies email. One-time setup: create a free Google Cloud project,
+    enable the Gmail API, create an OAuth client (Desktop app type), and upload the credentials JSON
+    here. <a href="https://developers.google.com/gmail/api/quickstart/python" target="_blank" rel="noopener" style="color: var(--accent); border-bottom: 1px solid var(--rule-bold);">Setup walkthrough →</a>
+  </p>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start;">
+    <form method="post" action="/settings/gmail/credentials" enctype="multipart/form-data" style="display: flex; gap: 0.5rem; align-items: center;">
+      <label class="btn-ghost" style="cursor: pointer; padding: 0.5rem 0.875rem; font-size: 12.5px;">
+        <input type="file" name="file" accept="application/json,.json" required style="display: none;" onchange="this.form.querySelector('button[type=submit]').disabled = !this.files.length; this.parentElement.querySelector('span').textContent = this.files[0] ? this.files[0].name : 'Choose credentials.json';">
+        <span>{{ 'Replace credentials.json' if gmail.state != 'no_credentials' else 'Choose credentials.json' }}</span>
+      </label>
+      <button type="submit" class="btn-primary" style="padding: 0.5rem 0.875rem; font-size: 12.5px;" disabled>Upload</button>
+    </form>
+
+    {% if gmail.state in ('credentials_only', 'connected', 'error') %}
+      <form method="post" action="/settings/gmail/connect">
+        <button type="submit" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 12.5px;">
+          {{ 'Reconnect' if gmail.state == 'connected' else 'Connect Gmail' }}
+        </button>
+      </form>
+      <p style="font-size: 11px; color: var(--ink-soft); max-width: 280px; line-height: 1.5; margin: 0;">
+        Opens a browser tab to the Google consent screen. After you click Allow, the dashboard regains focus.
+      </p>
+    {% endif %}
+
+    {% if gmail.state == 'connected' %}
+      <form method="post" action="/settings/gmail/disconnect" style="margin-left: auto;">
+        <button type="submit" class="btn-ghost" style="padding: 0.5rem 0.875rem; font-size: 12.5px;">Disconnect</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start;">
 
   <div class="glass-card" style="padding: 1.5rem;">
