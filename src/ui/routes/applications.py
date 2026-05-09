@@ -1,7 +1,7 @@
 from datetime import date
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse
 
 from src.applicant import _save_applications
 from src.profile_loader import Profile
@@ -17,10 +17,8 @@ ALL_STATUSES = [
     "rejected", "failed", "review_pending", "skipped",
 ]
 
-# Linear interview pipeline. Cards advance left-to-right.
 PIPELINE = ["applied", "screen", "technical", "onsite", "offer"]
 KANBAN_COLUMNS = PIPELINE + ["rejected"]
-CLOSED_STATUSES = ["failed", "review_pending", "skipped"]
 
 
 def _load_apps(profile_name: str) -> list:
@@ -29,20 +27,6 @@ def _load_apps(profile_name: str) -> list:
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return list(profile.applications)
-
-
-def _next_status(current: str) -> str | None:
-    if current in PIPELINE:
-        i = PIPELINE.index(current)
-        return PIPELINE[i + 1] if i + 1 < len(PIPELINE) else None
-    return None
-
-
-def _prev_status(current: str) -> str | None:
-    if current in PIPELINE:
-        i = PIPELINE.index(current)
-        return PIPELINE[i - 1] if i > 0 else None
-    return None
 
 
 def _kanban_groups(apps: list, search: str) -> tuple[dict, list]:
@@ -171,29 +155,6 @@ def patch_status(request: Request, idx: int, new_status: str = Form(...)):
         apps = _load_apps(profile_name)
         if not 0 <= idx < len(apps):
             raise HTTPException(status_code=404, detail="application not found")
-        apps[idx]["status"] = new_status
-        apps[idx]["status_updated_at"] = date.today().isoformat()
-        _save_applications(profile_name, apps)
-    return _render_kanban(request, profile_name)
-
-
-@router.post("/applications/{idx}/advance")
-def advance_status(request: Request, idx: int, direction: str = Form(...)):
-    profile_name = state.active_profile()
-    lock = state.profile_lock(profile_name)
-    with lock:
-        apps = _load_apps(profile_name)
-        if not 0 <= idx < len(apps):
-            raise HTTPException(status_code=404, detail="application not found")
-        current = apps[idx].get("status", "applied")
-        if direction == "next":
-            new_status = _next_status(current)
-        elif direction == "prev":
-            new_status = _prev_status(current)
-        else:
-            raise HTTPException(status_code=400, detail="direction must be next|prev")
-        if not new_status:
-            return _render_kanban(request, profile_name)
         apps[idx]["status"] = new_status
         apps[idx]["status_updated_at"] = date.today().isoformat()
         _save_applications(profile_name, apps)
