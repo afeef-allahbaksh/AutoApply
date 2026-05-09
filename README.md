@@ -38,13 +38,19 @@ src/
   ats_greenhouse.py             # Greenhouse form handler (React Select + standard inputs)
   ats_lever.py                  # Lever form handler
   applicant.py                  # Application submission orchestrator (persists Playwright storage_state per profile)
+  inbox/                        # Gmail integration — read-only, classify and propose updates
+    auth.py                     # OAuth flow, per-profile token persistence, status helper
+    fetch.py                    # Gmail API list/get with pagination + body extraction
+    classify.py                 # Batched Claude classifier (new_application | status_update | ignore)
+    matcher.py                  # Match classified email to existing applications.json entry
+    sync.py                     # Orchestrator: prefilter -> classify -> match -> proposals
   ui/                           # Local FastAPI dashboard (tracking, not applying)
     app.py                      # FastAPI() instance, mounts routers
     state.py                    # Active profile + per-profile threading.Lock registry
     deps.py                     # get_profile dependency, template_globals helper
     templates_loader.py         # Shared Jinja2Templates instance
-    routes/                     # dashboard, jobs, applications, companies, settings, cold_email, profile
-    templates/                  # base.html (design tokens), page templates, _row partials
+    routes/                     # dashboard, jobs, applications, companies, settings, cold_email, profile, email
+    templates/                  # base.html (design tokens), page templates, kanban + proposal partials
 config/
   *_schema.json                 # JSON schemas (profile, resume with project_pool, etc.)
   seed_companies.json           # Verified company slugs (Greenhouse/Lever)
@@ -70,6 +76,11 @@ profiles/
     screenshots/          # Form screenshots for review
     progress/             # Saved state for failed applications (retry support)
     browser_state.json    # Persisted Playwright cookies + localStorage (skips 2FA on re-runs)
+    gmail/                # (optional) Gmail OAuth state for inbox sync
+      credentials.json    # Google Cloud OAuth client (uploaded by user)
+      token.json          # Refresh token after first OAuth consent
+      state.json          # last_sync_at + processed_message_ids
+      proposals.json      # Pending review-queue items
 ```
 
 ## Quick Start
@@ -142,9 +153,38 @@ The `ui` subcommand launches a single-user, local-only FastAPI dashboard for tra
 - **Jobs** — Browse `jobs.json` with filters for fit score / company / ATS. Per-row "Track" button creates a manual application entry from the job (for logging applications you submitted via LinkedIn, referrals, or other channels).
 - **Applications** — Sortable table with inline status dropdown (`applied → screen → technical → onsite → offer / rejected`). Manual add, edit, delete. `status_updated_at` is stamped on every status change.
 - **Companies** — Add/list companies with auto-detect ATS.
-- **Settings** — Edit `profile.json` (roles, locations, salary, levels, industries, auto_submit, rate_limit_seconds) and `responses.json` (EEO answers). Optional Claude-powered role expansion via checkbox.
+- **Settings** — Edit `profile.json` (roles, locations, salary, levels, industries, auto_submit, rate_limit_seconds), `responses.json` (EEO answers), and the Gmail integration card.
 
-Stack: FastAPI + Jinja2 + HTMX + Tailwind via CDN. Bound to `127.0.0.1`, no auth. Aurora-frosted-glass design (Geist font, navy primary, pill buttons).
+Stack: FastAPI + Jinja2 + HTMX + Sortable.js + Tailwind via CDN. Bound to `127.0.0.1`, no auth. Editorial-mono design (Fraunces serif headlines + Inter body, off-white canvas, hairline rules, single forest-green accent).
+
+## Gmail integration (optional)
+
+Connect a Google account so the dashboard can scrape application status updates from your inbox and surface them as proposed changes. Read-only scope — AutoApply never sends or modifies email.
+
+### One-time setup
+
+1. Create a free Google Cloud project at <https://console.cloud.google.com>.
+2. Enable the **Gmail API** for that project.
+3. Create an **OAuth client ID** (type: **Desktop app**) and download `credentials.json`.
+4. In the dashboard, go to **Settings**, find the **Gmail integration** card, and upload `credentials.json`.
+5. Click **Connect Gmail** — a browser tab opens for the Google consent screen. Click **Allow**.
+6. The card now reads "Connected as you@gmail.com".
+
+### How sync works
+
+Click **Sync inbox** on the **Applications** page. Each sync:
+
+1. Fetches Gmail messages received since the last sync (or the last 30 days on first run).
+2. **Heuristic prefilter** drops obvious noise — LinkedIn / Indeed job alerts, newsletters, "your application was viewed" pings.
+3. **Claude classifier** processes survivors in batches of 10 and decides for each:
+   - `new_application` — an ATS confirmation ("Thanks for applying to Stripe").
+   - `status_update` — interview invite, rejection, or offer for an existing application.
+   - `ignore` — recruiter cold outreach, generic comms, anything off-process.
+4. **Matcher** ties status updates to existing entries by Gmail thread id (strongest signal), then fuzzy company match, narrowed by role-token overlap when multiple entries match the same company.
+5. Proposals land in a review-queue panel above the kanban: each shows the proposed change, source email, and confidence. Click **Apply** to accept, **Dismiss** to drop, or **View** to open the Gmail thread.
+6. Applied proposals tag the entry with `source="email"` (or append the thread to `email_thread_ids` if updating an existing entry).
+
+Auto-update is never silent — every change goes through the review queue. Already-processed messages are remembered in `gmail/state.json` so subsequent syncs skip them.
 
 ## Resume Optimization
 
@@ -237,7 +277,13 @@ Applications support an extended status enum — both the CLI `apply` flow and m
 - `offer` / `rejected` — terminal outcomes
 - `failed` / `review_pending` / `skipped` — CLI-only edge cases
 
-Each entry also carries `status_updated_at` (re-stamped on every status change) and `source` (`autoapply` for CLI submissions, `manual` for UI-tracked ones).
+Each entry also carries `status_updated_at` (re-stamped on every status change) and `source`:
+
+- `autoapply` — created by the CLI Playwright submission flow
+- `manual` — created by the dashboard's manual-add form or the Jobs-page Track button
+- `email` — created from a Gmail-derived proposal you accepted in the review queue
+
+Email-derived entries also carry `email_thread_ids` linking back to the inbox threads that informed the entry; subsequent emails on the same thread skip ambiguity matching and pin straight to that entry.
 
 ## Tech Stack
 
@@ -245,5 +291,6 @@ Each entry also carries `status_updated_at` (re-stamped on every status change) 
 - **Claude API** (Anthropic) — resume optimization, PDF parsing, custom question answering, cover letter generation
 - **Playwright** — browser automation for form filling, with persisted `storage_state` per profile to skip 2FA on re-runs
 - **WeasyPrint** — HTML/CSS to PDF rendering
-- **FastAPI + Jinja2 + HTMX** — local dashboard for tracking the interview pipeline
+- **FastAPI + Jinja2 + HTMX + Sortable.js** — local dashboard with kanban drag-and-drop
+- **Gmail API** — read-only inbox scrape for application status updates (OAuth, optional)
 - **Greenhouse & Lever APIs** — job discovery (public, no auth)
