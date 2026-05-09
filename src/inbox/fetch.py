@@ -1,13 +1,13 @@
-"""IMAP message fetching — two-phase: cheap header pull, then bodies on demand.
+"""IMAP message fetching — bulk-FETCH on a single connection.
 
-Inbox-wide syncs would spend 90% of their time pulling bodies of newsletters and
-alerts only to throw them away. Splitting the fetch lets the prefilter run on
-headers (subject + from), which is what it actually needs, and the full RFC822
-body is only paid for on the survivors.
+Two-phase: cheap header pull on all matching messages, then full body fetch
+only for prefilter survivors. Both phases use bulk FETCH (chunked sequence
+sets) so a sync of thousands of messages takes seconds, not minutes.
 """
 import email
 import html as html_module
 import re
+import time
 from datetime import datetime
 from email.message import Message
 from email.utils import parseaddr, parsedate_to_datetime
@@ -16,6 +16,10 @@ from src.inbox.auth import ImapCredentials, open_imap
 
 INBOX_FOLDER = "INBOX"
 HEADER_FIELDS = "Subject From To Date Message-ID References In-Reply-To"
+# Chunk sizes balance command-line length vs. round-trip count. Headers are
+# tiny so we go big; bodies can be hundreds of KB each so we keep groups small.
+HEADER_BULK_CHUNK = 500
+BODY_BULK_CHUNK = 50
 
 
 def _html_to_text(html: str) -> str:
@@ -83,15 +87,34 @@ def _imap_date(dt: datetime) -> str:
     return f"{dt.day:02d}-{months[dt.month - 1]}-{dt.year}"
 
 
-def _parse_fetch_response(msg_data: list) -> bytes | None:
-    return next(
-        (item[1] for item in msg_data if isinstance(item, tuple) and len(item) >= 2),
-        None,
-    )
+def _chunked(items: list, size: int):
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
 
 
-def _msg_to_header_dict(msg: Message, uid: bytes) -> dict:
-    msg_id = _strip_message_id(msg.get("Message-ID", "")) or f"uid-{uid.decode()}"
+def _iter_bulk_fetch(msg_data: list):
+    """Yield (seq_num_str, raw_bytes) per message in a bulk FETCH response.
+
+    imaplib flattens multi-message FETCH responses to a list where each message
+    is a `(descriptor_bytes, body_bytes)` tuple followed by a `b')'` terminator.
+    The first whitespace-delimited token of the descriptor is the sequence number.
+    """
+    for item in msg_data:
+        if not (isinstance(item, tuple) and len(item) >= 2):
+            continue
+        descriptor, raw = item[0], item[1]
+        if not isinstance(descriptor, (bytes, bytearray)) or not raw:
+            continue
+        first_token = descriptor.split(b" ", 1)[0]
+        try:
+            seq = first_token.decode()
+        except UnicodeDecodeError:
+            continue
+        yield seq, raw
+
+
+def _msg_to_header_dict(msg: Message, seq: str) -> dict:
+    msg_id = _strip_message_id(msg.get("Message-ID", "")) or f"seq-{seq}"
     thread_id = _thread_root_id(msg, fallback=msg_id)
     from_raw = msg.get("From", "")
     _, from_email = parseaddr(from_raw)
@@ -113,34 +136,32 @@ def _msg_to_header_dict(msg: Message, uid: bytes) -> dict:
         "snippet": "",
         "body_text": "",
         "labels": [],
-        "_uid": uid.decode(),
+        "_seq": seq,
     }
 
 
 def list_message_headers_since(creds: ImapCredentials, since_dt: datetime, max_results: int = 200) -> list[dict]:
-    """Phase 1: cheap pull. Returns header-only dicts (no body_text, no snippet).
-
-    Use the result with the prefilter, then call `populate_bodies(creds, survivors)`
-    to fetch full bodies only for messages worth classifying.
-    """
+    """Phase 1: cheap pull. Returns header-only dicts (no body_text, no snippet)."""
     conn = open_imap(creds)
     try:
         conn.select(INBOX_FOLDER, readonly=True)
         typ, data = conn.search(None, f'(SINCE "{_imap_date(since_dt)}")')
         if typ != "OK" or not data or not data[0]:
             return []
-        uids = list(reversed(data[0].split()))[:max_results]
+        seq_nums = list(reversed(data[0].split()))[:max_results]
 
+        t0 = time.perf_counter()
         out: list[dict] = []
-        for uid in uids:
-            typ, msg_data = conn.fetch(uid, f"(BODY.PEEK[HEADER.FIELDS ({HEADER_FIELDS})])")
-            if typ != "OK" or not msg_data:
+        for chunk in _chunked(seq_nums, HEADER_BULK_CHUNK):
+            chunk_set = b",".join(chunk)
+            typ, msg_data = conn.fetch(chunk_set, f"(BODY.PEEK[HEADER.FIELDS ({HEADER_FIELDS})])")
+            if typ != "OK":
                 continue
-            raw = _parse_fetch_response(msg_data)
-            if not raw:
-                continue
-            msg = email.message_from_bytes(raw)
-            out.append(_msg_to_header_dict(msg, uid))
+            for seq, raw in _iter_bulk_fetch(msg_data):
+                msg = email.message_from_bytes(raw)
+                out.append(_msg_to_header_dict(msg, seq))
+        elapsed = time.perf_counter() - t0
+        print(f"[inbox] header bulk fetch: {len(out)} messages in {elapsed:.1f}s ({len(seq_nums) // HEADER_BULK_CHUNK + 1} chunks)")
         return out
     finally:
         try:
@@ -150,30 +171,33 @@ def list_message_headers_since(creds: ImapCredentials, since_dt: datetime, max_r
 
 
 def populate_bodies(creds: ImapCredentials, messages: list[dict]) -> None:
-    """Phase 2: fetch full bodies for the given header-dicts in place.
-
-    Each dict gets `body_text` and `snippet` populated. Dicts without `_uid` are
-    skipped silently — they came from somewhere other than `list_message_headers_since`.
-    """
+    """Phase 2: fetch full bodies for the given header-dicts in place."""
     if not messages:
         return
+    by_seq = {m.get("_seq"): m for m in messages if m.get("_seq")}
+    if not by_seq:
+        return
+    seqs = list(by_seq.keys())
+
     conn = open_imap(creds)
     try:
         conn.select(INBOX_FOLDER, readonly=True)
-        for m in messages:
-            uid = m.get("_uid")
-            if not uid:
+        t0 = time.perf_counter()
+        for chunk in _chunked(seqs, BODY_BULK_CHUNK):
+            chunk_set = ",".join(chunk).encode()
+            typ, msg_data = conn.fetch(chunk_set, "(BODY.PEEK[])")
+            if typ != "OK":
                 continue
-            typ, msg_data = conn.fetch(uid.encode(), "(BODY.PEEK[])")
-            if typ != "OK" or not msg_data:
-                continue
-            raw = _parse_fetch_response(msg_data)
-            if not raw:
-                continue
-            full_msg = email.message_from_bytes(raw)
-            body = _extract_body(full_msg)
-            m["body_text"] = body
-            m["snippet"] = re.sub(r"\s+", " ", body)[:200]
+            for seq, raw in _iter_bulk_fetch(msg_data):
+                target = by_seq.get(seq)
+                if target is None:
+                    continue
+                full_msg = email.message_from_bytes(raw)
+                body = _extract_body(full_msg)
+                target["body_text"] = body
+                target["snippet"] = re.sub(r"\s+", " ", body)[:200]
+        elapsed = time.perf_counter() - t0
+        print(f"[inbox] body bulk fetch: {len(seqs)} messages in {elapsed:.1f}s")
     finally:
         try:
             conn.logout()

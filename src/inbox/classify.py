@@ -143,9 +143,25 @@ def classify_batch(messages: list[dict]) -> list[dict]:
     return results
 
 
+CLASSIFY_PARALLELISM = 5
+
+
 def classify_messages(messages: list[dict]) -> list[dict]:
-    """Classify any number of messages by batching into BATCH_SIZE calls."""
-    out = []
-    for i in range(0, len(messages), BATCH_SIZE):
-        out.extend(classify_batch(messages[i:i + BATCH_SIZE]))
+    """Classify any number of messages, running batches in parallel.
+
+    Each batch is one Claude call. CLASSIFY_PARALLELISM batches run concurrently
+    (HTTP I/O releases the GIL, so threading is enough — no asyncio needed).
+    """
+    if not messages:
+        return []
+    from concurrent.futures import ThreadPoolExecutor
+
+    batches = [messages[i:i + BATCH_SIZE] for i in range(0, len(messages), BATCH_SIZE)]
+    if len(batches) == 1:
+        return classify_batch(batches[0])
+    out: list[dict] = []
+    with ThreadPoolExecutor(max_workers=CLASSIFY_PARALLELISM) as pool:
+        # `map` preserves order, so concatenated results match input message order.
+        for result in pool.map(classify_batch, batches):
+            out.extend(result)
     return out
