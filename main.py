@@ -27,7 +27,7 @@ def main():
         "command",
         nargs="?",
         default="status",
-        choices=["setup", "status", "discover", "discover-jobs", "import-resume", "add-projects", "add-company", "update-settings", "update-responses", "update-preferences", "optimize", "apply", "run", "history"],
+        choices=["setup", "status", "discover", "discover-jobs", "import-resume", "add-projects", "add-company", "update-settings", "update-responses", "update-preferences", "optimize", "apply", "run", "history", "ui"],
         help="Command to run (default: status)",
     )
     parser.add_argument(
@@ -42,6 +42,10 @@ def main():
     parser.add_argument(
         "--dry-run", action="store_true", dest="dry_run",
         help="Fill forms and screenshot but never submit (for apply)",
+    )
+    parser.add_argument(
+        "--port", type=int, default=8000,
+        help="Port for the dashboard UI (default: 8000)",
     )
 
     args = parser.parse_args()
@@ -467,6 +471,15 @@ def main():
     elif args.command == "run":
         from src.pipeline import run_pipeline
         run_pipeline(profile, headless=args.headless)
+
+    elif args.command == "ui":
+        import os
+        import uvicorn
+        from src.ui.app import app
+        os.environ["AUTOAPPLY_PROFILE"] = args.profile
+        print(f"\nDashboard at http://127.0.0.1:{args.port}/  (profile: {args.profile})")
+        print("Bound to localhost only — no auth. Ctrl-C to stop.\n")
+        uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")
 
     elif args.command == "history":
         if not profile.applications:
