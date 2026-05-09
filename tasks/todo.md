@@ -157,10 +157,10 @@
 - [x] Add `email_thread_ids` array linking entries to inbox threads
 - [x] Update every `applications.append({...})` site in `applicant.py` to stamp `status_updated_at` + `source`
 
-## Phase 18: Gmail Inbox Integration (Read-Only)
-- [x] Google OAuth flow with per-profile token persistence (`src/inbox/auth.py`)
-- [x] Settings page Gmail card — credentials.json upload + Connect / Disconnect / status badge
-- [x] Gmail message fetcher with body extraction and pagination (`src/inbox/fetch.py`)
+## Phase 18: Inbox Integration via IMAP (Read-Only)
+- [x] Per-profile IMAP credential store with login verification on save (`src/inbox/auth.py`)
+- [x] Settings page Inbox card — email + app password + server/port + Connect / Disconnect (replaces earlier OAuth flow for distribution-friendliness)
+- [x] `imaplib`-backed message fetcher with body extraction and Message-ID threading via References / In-Reply-To headers (`src/inbox/fetch.py`)
 - [x] Heuristic prefilter — skip LinkedIn/Indeed/newsletter senders and noise subjects
 - [x] Claude classifier — batched (10/call) classification into `new_application` / `status_update` / `ignore`
 - [x] Application matcher — thread-id pin first, then fuzzy company + role tokens

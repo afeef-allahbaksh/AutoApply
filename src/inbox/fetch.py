@@ -1,26 +1,14 @@
-"""Gmail message fetching — list + parse messages received since a timestamp."""
-import base64
-import binascii
+"""IMAP message fetching — list + parse messages received since a timestamp."""
+import email
 import html as html_module
 import re
 from datetime import datetime
+from email.message import Message
 from email.utils import parseaddr, parsedate_to_datetime
 
-from googleapiclient.discovery import build
+from src.inbox.auth import ImapCredentials, open_imap
 
-# Gmail search query suffix — exclude spam/trash but keep promotions/updates,
-# since application emails often land outside the Primary tab.
-DEFAULT_QUERY_TAIL = "-in:spam -in:trash"
-
-
-def _b64url_decode(data: str) -> bytes:
-    if not data:
-        return b""
-    padded = data + "=" * (-len(data) % 4)
-    try:
-        return base64.urlsafe_b64decode(padded.encode())
-    except (binascii.Error, ValueError):
-        return b""
+INBOX_FOLDER = "INBOX"
 
 
 def _html_to_text(html: str) -> str:
@@ -33,26 +21,29 @@ def _html_to_text(html: str) -> str:
     return text
 
 
-def _extract_body(payload: dict) -> str:
+def _decode_part(part: Message) -> str:
+    payload = part.get_payload(decode=True)
+    if not payload:
+        return ""
+    charset = part.get_content_charset() or "utf-8"
+    try:
+        return payload.decode(charset, errors="replace")
+    except (LookupError, UnicodeDecodeError):
+        return payload.decode("utf-8", errors="replace")
+
+
+def _extract_body(msg: Message) -> str:
     """Walk MIME tree; prefer text/plain, fall back to text/html stripped."""
     text_plain: str | None = None
     text_html: str | None = None
-
-    def walk(node):
-        nonlocal text_plain, text_html
-        mime = node.get("mimeType", "")
-        body = node.get("body", {}) or {}
-        data = body.get("data", "")
-        if data:
-            decoded = _b64url_decode(data).decode("utf-8", errors="replace")
-            if mime == "text/plain" and text_plain is None:
-                text_plain = decoded
-            elif mime == "text/html" and text_html is None:
-                text_html = decoded
-        for part in node.get("parts", []) or []:
-            walk(part)
-
-    walk(payload)
+    for part in msg.walk():
+        if part.is_multipart():
+            continue
+        ctype = part.get_content_type()
+        if ctype == "text/plain" and text_plain is None:
+            text_plain = _decode_part(part)
+        elif ctype == "text/html" and text_html is None:
+            text_html = _decode_part(part)
     if text_plain:
         return text_plain
     if text_html:
@@ -60,66 +51,100 @@ def _extract_body(payload: dict) -> str:
     return ""
 
 
-def _headers_to_dict(headers: list) -> dict:
-    return {h["name"].lower(): h["value"] for h in headers}
+def _strip_message_id(raw: str) -> str:
+    """Message-IDs are wrapped in angle brackets per RFC 822; unwrap."""
+    return raw.strip().lstrip("<").rstrip(">").strip()
 
 
-def list_messages_since(creds, since_dt: datetime, max_results: int = 200) -> list[dict]:
-    """Return parsed Gmail messages received after since_dt.
+def _thread_root_id(msg: Message, fallback: str) -> str:
+    """Approximate Gmail's thread_id by walking References / In-Reply-To.
+
+    For the first message in a thread, References is empty and we fall back to
+    the message's own Message-ID — same value Gmail's thread_id would key on.
+    Replies share the root via References[0], so they group together.
+    """
+    refs = msg.get("References", "").strip()
+    if refs:
+        first = refs.split()[0]
+        return _strip_message_id(first)
+    in_reply = msg.get("In-Reply-To", "").strip()
+    if in_reply:
+        return _strip_message_id(in_reply)
+    return fallback
+
+
+def _imap_date(dt: datetime) -> str:
+    """IMAP SEARCH SINCE expects DD-MMM-YYYY (English month abbreviations)."""
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    return f"{dt.day:02d}-{months[dt.month - 1]}-{dt.year}"
+
+
+def list_messages_since(creds: ImapCredentials, since_dt: datetime, max_results: int = 200) -> list[dict]:
+    """Return parsed messages received after since_dt.
 
     Capped at max_results so a stale sync doesn't take forever. Each message dict:
       id, thread_id, subject, from, from_email, to, received_at, snippet, body_text, labels
     """
-    service = build("gmail", "v1", credentials=creds, cache_discovery=False)
-    epoch = int(since_dt.timestamp())
-    query = f"after:{epoch} {DEFAULT_QUERY_TAIL}"
+    conn = open_imap(creds)
+    try:
+        conn.select(INBOX_FOLDER, readonly=True)
+        typ, data = conn.search(None, f'(SINCE "{_imap_date(since_dt)}")')
+        if typ != "OK" or not data or not data[0]:
+            return []
+        ids = data[0].split()
+        # Newest first; cap.
+        ids = list(reversed(ids))[:max_results]
 
-    messages: list[dict] = []
-    page_token = None
-    fetched = 0
-    while fetched < max_results:
-        result = service.users().messages().list(
-            userId="me",
-            q=query,
-            maxResults=min(100, max_results - fetched),
-            pageToken=page_token,
-        ).execute()
-        items = result.get("messages", []) or []
-        for stub in items:
-            full = service.users().messages().get(
-                userId="me", id=stub["id"], format="full"
-            ).execute()
-            payload = full.get("payload", {}) or {}
-            headers = _headers_to_dict(payload.get("headers", []) or [])
-            from_raw = headers.get("from", "")
-            _, from_email = parseaddr(from_raw)
-            received_at = ""
-            if headers.get("date"):
-                try:
-                    received_at = parsedate_to_datetime(headers["date"]).isoformat()
-                except (TypeError, ValueError):
-                    pass
-            messages.append({
-                "id": full["id"],
-                "thread_id": full.get("threadId", ""),
-                "subject": headers.get("subject", ""),
-                "from": from_raw,
-                "from_email": from_email.lower(),
-                "to": headers.get("to", ""),
-                "received_at": received_at,
-                "snippet": full.get("snippet", ""),
-                "body_text": _extract_body(payload),
-                "labels": full.get("labelIds", []) or [],
-            })
-            fetched += 1
-            if fetched >= max_results:
-                break
-        page_token = result.get("nextPageToken")
-        if not page_token:
-            break
-    return messages
+        messages: list[dict] = []
+        for seq_id in ids:
+            typ, msg_data = conn.fetch(seq_id, "(RFC822)")
+            if typ != "OK" or not msg_data:
+                continue
+            raw_bytes = next(
+                (item[1] for item in msg_data if isinstance(item, tuple) and len(item) >= 2),
+                None,
+            )
+            if not raw_bytes:
+                continue
+            msg = email.message_from_bytes(raw_bytes)
+            messages.append(_to_dict(msg))
+        return messages
+    finally:
+        try:
+            conn.logout()
+        except Exception:
+            pass
+
+
+def _to_dict(msg: Message) -> dict:
+    msg_id = _strip_message_id(msg.get("Message-ID", "")) or f"no-id-{id(msg)}"
+    thread_id = _thread_root_id(msg, fallback=msg_id)
+    from_raw = msg.get("From", "")
+    _, from_email = parseaddr(from_raw)
+    received_at = ""
+    date_hdr = msg.get("Date", "")
+    if date_hdr:
+        try:
+            received_at = parsedate_to_datetime(date_hdr).isoformat()
+        except (TypeError, ValueError):
+            pass
+    body = _extract_body(msg)
+    snippet = re.sub(r"\s+", " ", body)[:200]
+    return {
+        "id": msg_id,
+        "thread_id": thread_id,
+        "subject": msg.get("Subject", "") or "",
+        "from": from_raw,
+        "from_email": (from_email or "").lower(),
+        "to": msg.get("To", "") or "",
+        "received_at": received_at,
+        "snippet": snippet,
+        "body_text": body,
+        "labels": [],
+    }
 
 
 def thread_url(message_id: str) -> str:
-    """Deep link to a Gmail thread by message id (works in browser when signed in)."""
-    return f"https://mail.google.com/mail/u/0/#inbox/{message_id}"
+    """Best-effort deep link. Works in browser when signed into Gmail; for other
+    providers users can copy the Message-ID and search their client manually."""
+    return f"https://mail.google.com/mail/u/0/#search/rfc822msgid:{message_id}"

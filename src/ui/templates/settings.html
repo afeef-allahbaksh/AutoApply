@@ -3,54 +3,61 @@
 
 <div class="glass-card" style="padding: 1.5rem; margin-bottom: 1.5rem;">
   <div style="display: flex; align-items: baseline; gap: 1rem; margin-bottom: 0.875rem;">
-    <div class="section-label">Gmail integration</div>
-    {% if gmail.state == 'connected' %}
-      <span class="badge badge-success">Connected · {{ gmail.email }}</span>
-    {% elif gmail.state == 'credentials_only' %}
-      <span class="badge badge-warning">Credentials uploaded — not connected</span>
-    {% elif gmail.state == 'error' %}
-      <span class="badge badge-danger">Error: {{ gmail.error }}</span>
+    <div class="section-label">Inbox sync (IMAP)</div>
+    {% if inbox.state == 'connected' %}
+      <span class="badge badge-success">Connected · {{ inbox.email }}</span>
     {% else %}
       <span class="badge badge-neutral">Not configured</span>
     {% endif %}
   </div>
 
-  {% if gmail_msg %}<div class="badge badge-success" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ gmail_msg }}</div>{% endif %}
-  {% if gmail_err %}<div class="badge badge-danger" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ gmail_err }}</div>{% endif %}
+  {% if inbox_msg %}<div class="badge badge-success" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ inbox_msg }}</div>{% endif %}
+  {% if inbox_err %}<div class="badge badge-danger" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ inbox_err }}</div>{% endif %}
 
   <p style="font-size: 12.5px; color: var(--ink-muted); line-height: 1.6; margin: 0 0 1rem 0; max-width: 720px;">
-    Connect a Google account to scrape application status updates from your inbox. Read-only scope —
-    AutoApply never sends or modifies email. One-time setup: create a free Google Cloud project,
-    enable the Gmail API, create an OAuth client (Desktop app type), and upload the credentials JSON
-    here. <a href="https://developers.google.com/gmail/api/quickstart/python" target="_blank" rel="noopener" style="color: var(--accent); border-bottom: 1px solid var(--rule-bold);">Setup walkthrough →</a>
+    Connect any IMAP-supporting mailbox so AutoApply can scrape application status updates locally.
+    <strong>Gmail:</strong> enable 2FA, then generate an app password at
+    <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" style="color: var(--accent); border-bottom: 1px solid var(--rule-bold);">myaccount.google.com/apppasswords</a>
+    and paste it below. The password is stored on disk in <code class="mono">profiles/{name}/imap/credentials.json</code>
+    and gives full mailbox access — AutoApply only reads, but treat the file as a secret.
   </p>
 
-  <div style="display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start;">
-    <form method="post" action="/settings/gmail/credentials" enctype="multipart/form-data" style="display: flex; gap: 0.5rem; align-items: center;">
-      <label class="btn-ghost" style="cursor: pointer; padding: 0.5rem 0.875rem; font-size: 12.5px;">
-        <input type="file" name="file" accept="application/json,.json" required style="display: none;" onchange="this.form.querySelector('button[type=submit]').disabled = !this.files.length; this.parentElement.querySelector('span').textContent = this.files[0] ? this.files[0].name : 'Choose credentials.json';">
-        <span>{{ 'Replace credentials.json' if gmail.state != 'no_credentials' else 'Choose credentials.json' }}</span>
-      </label>
-      <button type="submit" class="btn-primary" style="padding: 0.5rem 0.875rem; font-size: 12.5px;" disabled>Upload</button>
-    </form>
-
-    {% if gmail.state in ('credentials_only', 'connected', 'error') %}
-      <form method="post" action="/settings/gmail/connect">
-        <button type="submit" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 12.5px;">
-          {{ 'Reconnect' if gmail.state == 'connected' else 'Connect Gmail' }}
-        </button>
-      </form>
-      <p style="font-size: 11px; color: var(--ink-soft); max-width: 280px; line-height: 1.5; margin: 0;">
-        Opens a browser tab to the Google consent screen. After you click Allow, the dashboard regains focus.
-      </p>
-    {% endif %}
-
-    {% if gmail.state == 'connected' %}
-      <form method="post" action="/settings/gmail/disconnect" style="margin-left: auto;">
-        <button type="submit" class="btn-ghost" style="padding: 0.5rem 0.875rem; font-size: 12.5px;">Disconnect</button>
-      </form>
-    {% endif %}
-  </div>
+  <form method="post" action="/settings/inbox/save"
+        style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; max-width: 720px;">
+    <div>
+      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Email address</label>
+      <input class="pill-input" name="email" type="email" required
+             value="{{ inbox.email or '' }}"
+             placeholder="you@gmail.com" style="width: 100%;">
+    </div>
+    <div>
+      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">App password</label>
+      <input class="pill-input" name="password" type="password" required
+             placeholder="16-character app password" style="width: 100%;">
+    </div>
+    <div>
+      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">IMAP server <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(default Gmail)</span></label>
+      <input class="pill-input" name="server" placeholder="{{ default_imap_server }}" style="width: 100%;">
+    </div>
+    <div>
+      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Port</label>
+      <input class="pill-input" name="port" type="number" placeholder="{{ default_imap_port }}" style="width: 100%;">
+    </div>
+    <div style="grid-column: span 2; display: flex; gap: 0.5rem; align-items: center;">
+      <button type="submit" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 12.5px;">
+        {{ 'Reconnect' if inbox.state == 'connected' else 'Connect' }}
+      </button>
+      {% if inbox.state == 'connected' %}
+        <button type="submit" form="inbox-disconnect" class="btn-ghost" style="padding: 0.5rem 0.875rem; font-size: 12.5px;">Disconnect</button>
+      {% endif %}
+      <span style="font-size: 11px; color: var(--ink-soft); margin-left: 0.5rem;">
+        We'll do a real login on save and refuse bad credentials.
+      </span>
+    </div>
+  </form>
+  {% if inbox.state == 'connected' %}
+    <form id="inbox-disconnect" method="post" action="/settings/inbox/disconnect" style="display: none;"></form>
+  {% endif %}
 </div>
 
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start;">

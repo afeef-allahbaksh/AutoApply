@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block header_actions %}
 <div style="display: flex; gap: 0.5rem; align-items: center;">
-  {% if gmail_connected %}
+  {% if inbox_connected %}
     <form hx-post="/email/sync"
           hx-target="#applications-content"
           hx-swap="outerHTML"
@@ -14,7 +14,7 @@
       <span id="sync-spinner" class="htmx-indicator spinner" style="margin-left: 0.25rem;"></span>
     </form>
   {% else %}
-    <a href="/settings" class="btn-ghost" title="Connect Gmail in Settings to enable inbox sync"
+    <a href="/settings" class="btn-ghost" title="Connect your inbox in Settings to enable sync"
        style="opacity: 0.55;">Sync inbox →</a>
   {% endif %}
   <button class="btn-ghost"

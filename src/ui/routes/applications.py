@@ -48,14 +48,14 @@ def _render_kanban(request: Request, profile_name: str) -> HTMLResponse:
 
 @router.get("/applications")
 def applications_page(request: Request, q: str = ""):
+    from src.inbox import auth as inbox_auth
     from src.inbox import sync as inbox_sync
-    from src.inbox import auth as gmail_auth
 
     profile_name = state.active_profile()
     apps = load_applications(profile_name) if profile_name else []
     columns, closed = kanban_groups(apps, q)
     proposals = inbox_sync.enrich_proposals(profile_name) if profile_name else []
-    gmail_connected = gmail_auth.is_connected(profile_name) if profile_name else False
+    inbox_connected = inbox_auth.is_connected(profile_name) if profile_name else False
     return templates.TemplateResponse(
         request, "applications.html",
         template_context(
@@ -70,7 +70,7 @@ def applications_page(request: Request, q: str = ""):
             pipeline=PIPELINE,
             status_badge_class=STATUS_BADGE_CLASS,
             proposals=proposals,
-            gmail_connected=gmail_connected,
+            inbox_connected=inbox_connected,
             sync_msg="",
             sync_err="",
         ),

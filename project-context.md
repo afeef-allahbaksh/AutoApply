@@ -139,7 +139,7 @@ Users can add companies via `add-company` command (auto-detects ATS from slug). 
 - Persistent Playwright `storage_state` per profile (`profiles/{name}/browser_state.json`) — cookies survive across CLI runs so 2FA challenges don't re-prompt
 - Extended `applications.json` status enum (`screen`, `technical`, `onsite`, `offer`, `rejected`) plus `status_updated_at`, `source` (`autoapply` | `manual` | `email`), and `email_thread_ids` for interview-pipeline tracking
 - Local FastAPI dashboard (`src/ui/`) — kanban view of applications with drag-and-drop, jobs browser with track-to-application, companies add, profile/responses settings, Gmail integration setup. HTMX + Jinja2 + Sortable.js, editorial-mono design tokens (Fraunces + Inter, off-white canvas, hairline rules, forest-green accent) in `base.html`
-- Gmail inbox integration (`src/inbox/`) — read-only OAuth scrape, prefilter heuristic + Claude classifier, fuzzy matching to existing entries, manual review queue. Never auto-applies silently
+- IMAP inbox integration (`src/inbox/`) — read-only `imaplib` scrape (Gmail-default, any IMAPS host), prefilter heuristic + Claude classifier, fuzzy matching to existing entries, manual review queue. Auth via app password instead of OAuth so users don't need their own Google Cloud project. Never auto-applies silently
 
 ## Priority build order
 1. ~~Profiles system + profile.json + responses.json schema~~ (done)

@@ -38,9 +38,9 @@ src/
   ats_greenhouse.py             # Greenhouse form handler (React Select + standard inputs)
   ats_lever.py                  # Lever form handler
   applicant.py                  # Application submission orchestrator (persists Playwright storage_state per profile)
-  inbox/                        # Gmail integration — read-only, classify and propose updates
-    auth.py                     # OAuth flow, per-profile token persistence, status helper
-    fetch.py                    # Gmail API list/get with pagination + body extraction
+  inbox/                        # Inbox integration via IMAP — classify and propose updates
+    auth.py                     # IMAP credentials store + login verifier (Gmail-default, any IMAP host)
+    fetch.py                    # imaplib wrapper with body extraction and Message-ID threading
     classify.py                 # Batched Claude classifier (new_application | status_update | ignore)
     matcher.py                  # Match classified email to existing applications.json entry
     sync.py                     # Orchestrator: prefilter -> classify -> match -> proposals
@@ -76,9 +76,8 @@ profiles/
     screenshots/          # Form screenshots for review
     progress/             # Saved state for failed applications (retry support)
     browser_state.json    # Persisted Playwright cookies + localStorage (skips 2FA on re-runs)
-    gmail/                # (optional) Gmail OAuth state for inbox sync
-      credentials.json    # Google Cloud OAuth client (uploaded by user)
-      token.json          # Refresh token after first OAuth consent
+    imap/                 # (optional) IMAP credentials + sync state for inbox integration
+      credentials.json    # {email, password, server, port} — created by Settings page
       state.json          # last_sync_at + processed_message_ids
       proposals.json      # Pending review-queue items
 ```
@@ -157,18 +156,25 @@ The `ui` subcommand launches a single-user, local-only FastAPI dashboard for tra
 
 Stack: FastAPI + Jinja2 + HTMX + Sortable.js + Tailwind via CDN. Bound to `127.0.0.1`, no auth. Editorial-mono design (Fraunces serif headlines + Inter body, off-white canvas, hairline rules, single forest-green accent).
 
-## Gmail integration (optional)
+## Inbox integration (optional, IMAP)
 
-Connect a Google account so the dashboard can scrape application status updates from your inbox and surface them as proposed changes. Read-only scope — AutoApply never sends or modifies email.
+Connect any IMAP-supporting mailbox so the dashboard can scrape application status updates and surface them as proposed changes. AutoApply only reads — it never sends or modifies email.
 
-### One-time setup
+### One-time setup (Gmail)
 
-1. Create a free Google Cloud project at <https://console.cloud.google.com>.
-2. Enable the **Gmail API** for that project.
-3. Create an **OAuth client ID** (type: **Desktop app**) and download `credentials.json`.
-4. In the dashboard, go to **Settings**, find the **Gmail integration** card, and upload `credentials.json`.
-5. Click **Connect Gmail** — a browser tab opens for the Google consent screen. Click **Allow**.
-6. The card now reads "Connected as you@gmail.com".
+1. Enable 2FA on your Google account if it isn't already (<https://myaccount.google.com/security>).
+2. Generate an **App password** at <https://myaccount.google.com/apppasswords> (any 16-character one).
+3. In the dashboard, go to **Settings → Inbox sync (IMAP)**, enter your email + the app password (server / port can be left blank to default to `imap.gmail.com:993`).
+4. Click **Connect**. The dashboard runs a real login + logout to verify and refuses bad credentials.
+5. The card now reads "Connected as you@gmail.com".
+
+### Setup for other providers
+
+Same flow with a different server. Outlook: `outlook.office365.com:993`. ProtonMail: requires Bridge running locally and uses `127.0.0.1:1143`. University mailboxes: ask IT for the IMAP host. As long as the provider speaks IMAPS and accepts password auth, it works.
+
+### Security trade-off vs. OAuth
+
+An app password gives **full mailbox access** (read, send, delete) — not the read-only scope OAuth would grant. AutoApply only reads, but the secret stored in `profiles/{name}/imap/credentials.json` is more powerful than an OAuth refresh token. Treat it like a password. The trade buys you a 2-minute setup vs. registering a Google Cloud project.
 
 ### How sync works
 
@@ -180,8 +186,8 @@ Click **Sync inbox** on the **Applications** page. Each sync:
    - `new_application` — an ATS confirmation ("Thanks for applying to Stripe").
    - `status_update` — interview invite, rejection, or offer for an existing application.
    - `ignore` — recruiter cold outreach, generic comms, anything off-process.
-4. **Matcher** ties status updates to existing entries by Gmail thread id (strongest signal), then fuzzy company match, narrowed by role-token overlap when multiple entries match the same company.
-5. Proposals land in a review-queue panel above the kanban: each shows the proposed change, source email, and confidence. Click **Apply** to accept, **Dismiss** to drop, or **View** to open the Gmail thread.
+4. **Matcher** ties status updates to existing entries by message thread (RFC 822 References / In-Reply-To headers — replies pin to the same root Message-ID as the first email AutoApply saw), then fuzzy company match, narrowed by role-token overlap when multiple entries match the same company.
+5. Proposals land in a review-queue panel above the kanban: each shows the proposed change, source email, and confidence. Click **Apply** to accept, **Dismiss** to drop, or **View** to open the matching message in your mail client (the link uses Gmail's web UI by default — works when you're signed in to Gmail; for other providers, copy the Message-ID and search your client).
 6. Applied proposals tag the entry with `source="email"` (or append the thread to `email_thread_ids` if updating an existing entry).
 
 Auto-update is never silent — every change goes through the review queue. Already-processed messages are remembered in `gmail/state.json` so subsequent syncs skip them.
@@ -292,5 +298,5 @@ Email-derived entries also carry `email_thread_ids` linking back to the inbox th
 - **Playwright** — browser automation for form filling, with persisted `storage_state` per profile to skip 2FA on re-runs
 - **WeasyPrint** — HTML/CSS to PDF rendering
 - **FastAPI + Jinja2 + HTMX + Sortable.js** — local dashboard with kanban drag-and-drop
-- **Gmail API** — read-only inbox scrape for application status updates (OAuth, optional)
+- **IMAP (stdlib `imaplib`)** — read-only inbox scrape for application status updates (works with Gmail, Outlook, any IMAPS host; optional)
 - **Greenhouse & Lever APIs** — job discovery (public, no auth)

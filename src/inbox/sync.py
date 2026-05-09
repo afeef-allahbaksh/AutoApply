@@ -48,11 +48,11 @@ NOISE_REGEX = re.compile("|".join(NOISE_SUBJECT_PATTERNS), re.IGNORECASE)
 
 
 def state_path(profile_name: str) -> Path:
-    return auth.gmail_dir(profile_name) / "state.json"
+    return auth.imap_dir(profile_name) / "state.json"
 
 
 def proposals_path(profile_name: str) -> Path:
-    return auth.gmail_dir(profile_name) / "proposals.json"
+    return auth.imap_dir(profile_name) / "proposals.json"
 
 
 def load_state(profile_name: str) -> dict:
@@ -159,7 +159,7 @@ def sync_now(profile_name: str, max_messages: int = DEFAULT_MAX_MESSAGES) -> dic
     """
     creds = auth.load_credentials(profile_name)
     if not creds:
-        return {"ok": False, "error": "Gmail not connected. Connect on the Settings page first."}
+        return {"ok": False, "error": "Inbox not connected. Connect on the Settings page first."}
 
     state = load_state(profile_name)
     processed_ids = set(state.get("processed_message_ids", []))
@@ -173,7 +173,7 @@ def sync_now(profile_name: str, max_messages: int = DEFAULT_MAX_MESSAGES) -> dic
     try:
         messages = fetch.list_messages_since(creds, since_dt, max_results=max_messages)
     except Exception as e:
-        return {"ok": False, "error": f"Gmail fetch failed: {e}"}
+        return {"ok": False, "error": f"Inbox fetch failed: {e}"}
 
     new_messages = [m for m in messages if m["id"] not in processed_ids]
     survivors = [m for m in new_messages if _prefilter(m)]
