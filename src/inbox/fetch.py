@@ -96,11 +96,11 @@ def list_messages_since(creds, since_dt: datetime, max_results: int = 200, extra
             from_raw = headers.get("from", "")
             _, from_email = parseaddr(from_raw)
             received_at = ""
-            try:
-                if headers.get("date"):
+            if headers.get("date"):
+                try:
                     received_at = parsedate_to_datetime(headers["date"]).isoformat()
-            except Exception:
-                pass
+                except (TypeError, ValueError):
+                    pass
             messages.append({
                 "id": full["id"],
                 "thread_id": full.get("threadId", ""),

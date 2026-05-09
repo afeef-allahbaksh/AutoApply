@@ -51,9 +51,12 @@ def _split_csv(s: str) -> list[str]:
     return [x.strip() for x in s.split(",") if x.strip()]
 
 
-@router.get("/settings")
-def settings_page(
+def _settings_response(
     request: Request,
+    profile_name: str,
+    profile_data: dict | None = None,
+    responses_data: dict | None = None,
+    *,
     profile_msg: str = "",
     profile_err: str = "",
     responses_msg: str = "",
@@ -61,9 +64,10 @@ def settings_page(
     gmail_msg: str = "",
     gmail_err: str = "",
 ):
-    profile_name = state.active_profile()
-    profile_data = _read_profile(profile_name) if profile_name else {}
-    responses_data = _read_responses(profile_name) if profile_name else {}
+    if profile_data is None:
+        profile_data = _read_profile(profile_name) if profile_name else {}
+    if responses_data is None:
+        responses_data = _read_responses(profile_name) if profile_name else {}
     gmail_status = gmail_auth.status(profile_name) if profile_name else {"state": "no_credentials", "email": None}
     return templates.TemplateResponse(
         request, "settings.html",
@@ -80,6 +84,24 @@ def settings_page(
             gmail_msg=gmail_msg,
             gmail_err=gmail_err,
         ),
+    )
+
+
+@router.get("/settings")
+def settings_page(
+    request: Request,
+    profile_msg: str = "",
+    profile_err: str = "",
+    responses_msg: str = "",
+    responses_err: str = "",
+    gmail_msg: str = "",
+    gmail_err: str = "",
+):
+    return _settings_response(
+        request, state.active_profile(),
+        profile_msg=profile_msg, profile_err=profile_err,
+        responses_msg=responses_msg, responses_err=responses_err,
+        gmail_msg=gmail_msg, gmail_err=gmail_err,
     )
 
 
@@ -154,17 +176,9 @@ def save_profile(
                 try:
                     roles_list = expand_roles(roles_list, levels_list or ["Junior"])
                 except Exception as e:
-                    return templates.TemplateResponse(
-                        request, "settings.html",
-                        template_context(
-                            request,
-                            page_title="Settings",
-                            profile=data,
-                            responses=_read_responses(profile_name),
-                            profile_msg="",
-                            profile_err=f"Role expansion failed: {e}",
-                            responses_msg="", responses_err="",
-                        ),
+                    return _settings_response(
+                        request, profile_name, data,
+                        profile_err=f"Role expansion failed: {e}",
                     )
             prefs["roles"] = roles_list
 
@@ -176,7 +190,10 @@ def save_profile(
             try:
                 prefs["salary_min"] = int(salary_min)
             except ValueError:
-                pass
+                return _settings_response(
+                    request, profile_name, data,
+                    profile_err=f"salary_min must be a number, got {salary_min!r}.",
+                )
         elif "salary_min" in prefs:
             prefs.pop("salary_min")
         industries_list = _split_csv(industries)
@@ -191,36 +208,21 @@ def save_profile(
             try:
                 settings["rate_limit_seconds"] = int(rate_limit_seconds)
             except ValueError:
-                pass
+                return _settings_response(
+                    request, profile_name, data,
+                    profile_err=f"rate_limit_seconds must be a number, got {rate_limit_seconds!r}.",
+                )
 
         try:
             _write_profile(profile_name, data)
         except Exception as e:
-            return templates.TemplateResponse(
-                request, "settings.html",
-                template_context(
-                    request,
-                    page_title="Settings",
-                    profile=data,
-                    responses=_read_responses(profile_name),
-                    profile_msg="",
-                    profile_err=f"Save failed: {e}",
-                    responses_msg="", responses_err="",
-                ),
+            return _settings_response(
+                request, profile_name, data,
+                profile_err=f"Save failed: {e}",
             )
 
-    return templates.TemplateResponse(
-        request, "settings.html",
-        template_context(
-            request,
-            page_title="Settings",
-            profile=data,
-            responses=_read_responses(profile_name),
-            profile_msg="Profile saved." + (f" Roles expanded to {len(roles_list)}." if expand else ""),
-            profile_err="",
-            responses_msg="", responses_err="",
-        ),
-    )
+    msg = "Profile saved." + (f" Roles expanded to {len(roles_list)}." if expand else "")
+    return _settings_response(request, profile_name, data, profile_msg=msg)
 
 
 @router.post("/settings/responses")
@@ -250,42 +252,19 @@ def save_responses(
             elif key in existing and not value:
                 pass
         if not existing:
-            return templates.TemplateResponse(
-                request, "settings.html",
-                template_context(
-                    request,
-                    page_title="Settings",
-                    profile=_read_profile(profile_name),
-                    responses=existing,
-                    profile_msg="", profile_err="",
-                    responses_msg="",
-                    responses_err="At least one response is required.",
-                ),
+            return _settings_response(
+                request, profile_name, responses_data=existing,
+                responses_err="At least one response is required.",
             )
         try:
             _write_responses(profile_name, existing)
         except Exception as e:
-            return templates.TemplateResponse(
-                request, "settings.html",
-                template_context(
-                    request,
-                    page_title="Settings",
-                    profile=_read_profile(profile_name),
-                    responses=existing,
-                    profile_msg="", profile_err="",
-                    responses_msg="", responses_err=f"Save failed: {e}",
-                ),
+            return _settings_response(
+                request, profile_name, responses_data=existing,
+                responses_err=f"Save failed: {e}",
             )
 
-    return templates.TemplateResponse(
-        request, "settings.html",
-        template_context(
-            request,
-            page_title="Settings",
-            profile=_read_profile(profile_name),
-            responses=existing,
-            profile_msg="", profile_err="",
-            responses_msg="Responses saved.",
-            responses_err="",
-        ),
+    return _settings_response(
+        request, profile_name, responses_data=existing,
+        responses_msg="Responses saved.",
     )
