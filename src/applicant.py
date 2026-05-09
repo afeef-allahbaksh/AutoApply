@@ -134,6 +134,8 @@ def apply_to_jobs(
                     "company": company, "role": role, "posting_url": posting_url,
                     "date": date.today().isoformat(), "status": "failed",
                     "ats": ats, "error": f"Unhandled: {e}",
+                    "status_updated_at": date.today().isoformat(),
+                    "source": "autoapply",
                 })
                 try:
                     _save_applications(profile.profile_name, applications)
@@ -266,6 +268,8 @@ def _process_job(
                 "company": company, "role": role, "posting_url": posting_url,
                 "date": date.today().isoformat(), "status": "failed",
                 "ats": ats, "error": fill_result.get("error") or error_msg,
+                "status_updated_at": date.today().isoformat(),
+                "source": "autoapply",
             }
             if job.get("fit_score") is not None:
                 fail_entry["fit_score"] = job["fit_score"]
@@ -327,6 +331,8 @@ def _process_job(
                 "company": company, "role": role, "posting_url": posting_url,
                 "date": date.today().isoformat(), "status": status,
                 "ats": ats, "tailored_resume_path": resume_path,
+                "status_updated_at": date.today().isoformat(),
+                "source": "autoapply",
             })
             _save_applications(profile.profile_name, applications)
             results.append({"company": company, "role": role, "status": status})
@@ -338,6 +344,8 @@ def _process_job(
     app_entry = {
         "company": company, "role": role, "posting_url": posting_url,
         "date": date.today().isoformat(), "status": status, "ats": ats,
+        "status_updated_at": date.today().isoformat(),
+        "source": "autoapply",
     }
     if resume_path:
         app_entry["tailored_resume_path"] = resume_path
