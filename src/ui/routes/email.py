@@ -1,58 +1,43 @@
 """Email-driven application updates — sync inbox, review and apply proposals."""
 from datetime import date
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
 from src.applicant import _save_applications
 from src.inbox import sync as inbox_sync
-from src.profile_loader import Profile
 
 from .. import state
-from ..templates_loader import templates
-from .applications import (
+from ..pipeline import (
     ALL_STATUSES,
+    COLUMN_HEADERS,
     KANBAN_COLUMNS,
     PIPELINE,
-    _kanban_groups,
-    _load_apps,
+    STATUS_BADGE_CLASS,
+    kanban_groups,
+    load_applications,
 )
+from ..templates_loader import templates
 
 router = APIRouter()
 
 
-def _enrich_proposals(profile_name: str, proposals: list[dict]) -> list[dict]:
-    """Add human labels to ambiguous proposal candidates."""
-    profile = Profile(profile_name)
-    apps = list(profile.applications)
-    out = []
-    for p in proposals:
-        e = dict(p)
-        if p["resolution"] == "ambiguous":
-            labels = []
-            for cidx in p.get("candidates", []) or []:
-                if 0 <= cidx < len(apps):
-                    role = (apps[cidx].get("role") or "")[:40]
-                    labels.append({"idx": cidx, "label": f"{apps[cidx].get('company', '?')} · {role}"})
-            e["candidate_labels"] = labels
-        out.append(e)
-    return out
-
-
 def _render_main(request: Request, profile_name: str, sync_msg: str = "", sync_err: str = "") -> HTMLResponse:
-    """Render the entire #applications-content block (proposals + kanban)."""
-    apps = _load_apps(profile_name) if profile_name else []
-    columns, closed = _kanban_groups(apps, "")
-    proposals = _enrich_proposals(profile_name, inbox_sync.load_proposals(profile_name)) if profile_name else []
+    """Render the #applications-content block — proposals panel plus kanban."""
+    apps = load_applications(profile_name) if profile_name else []
+    columns, closed = kanban_groups(apps)
+    proposals = inbox_sync.enrich_proposals(profile_name) if profile_name else []
     return templates.TemplateResponse(
         request, "_applications_main.html",
         {
             "request": request,
             "columns": columns,
             "kanban_columns": KANBAN_COLUMNS,
+            "column_headers": COLUMN_HEADERS,
             "closed": closed,
             "all_statuses": ALL_STATUSES,
             "pipeline": PIPELINE,
+            "status_badge_class": STATUS_BADGE_CLASS,
             "proposals": proposals,
             "sync_msg": sync_msg,
             "sync_err": sync_err,
@@ -64,6 +49,8 @@ def _render_main(request: Request, profile_name: str, sync_msg: str = "", sync_e
 def sync_inbox(request: Request):
     profile_name = state.active_profile()
     lock = state.profile_lock(profile_name)
+    # Non-blocking: a sync can take 30s+; if one is already running, surface that
+    # immediately rather than queue a second click behind it.
     if not lock.acquire(blocking=False):
         return _render_main(request, profile_name, sync_err="Another action is in progress; try again shortly.")
     try:
@@ -89,7 +76,7 @@ def apply_proposal(request: Request, proposal_id: str, target_idx: str = Form(""
         if not prop:
             return _render_main(request, profile_name, sync_err="Proposal not found (already handled?).")
 
-        apps = _load_apps(profile_name)
+        apps = load_applications(profile_name)
         today = date.today().isoformat()
         thread_id = prop.get("thread_id") or ""
 
@@ -107,7 +94,6 @@ def apply_proposal(request: Request, proposal_id: str, target_idx: str = Form(""
                 entry["email_thread_ids"] = [thread_id]
             apps.append(entry)
         else:
-            # status_update — pick target_idx
             if target_idx.strip():
                 try:
                     idx = int(target_idx)
@@ -124,7 +110,7 @@ def apply_proposal(request: Request, proposal_id: str, target_idx: str = Form(""
             apps[idx]["status"] = prop["proposed_status"]
             apps[idx]["status_updated_at"] = today
             if thread_id:
-                threads = list(apps[idx].get("email_thread_ids", []) or [])
+                threads = list(apps[idx].get("email_thread_ids") or [])
                 if thread_id not in threads:
                     threads.append(thread_id)
                     apps[idx]["email_thread_ids"] = threads

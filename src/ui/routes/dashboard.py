@@ -4,6 +4,7 @@ from src.profile_loader import Profile
 
 from .. import state
 from ..deps import template_context
+from ..pipeline import STATUS_BADGE_CLASS
 from ..templates_loader import templates
 
 router = APIRouter()
@@ -12,8 +13,15 @@ ACTIVE_STATUSES = {"applied", "screen", "technical", "onsite", "offer", "rejecte
 PIPELINE_STATUSES = {"screen", "technical", "onsite"}
 RESPONSE_STATUSES = {"screen", "technical", "onsite", "offer"}
 
+EMPTY_METRICS = {
+    "total_applied": 0, "in_pipeline": 0, "offers": 0, "rejections": 0,
+    "response_rate": 0.0, "responses_count": 0, "recent": [],
+}
+
 
 def _metrics_for(profile_name: str) -> dict:
+    if not profile_name:
+        return EMPTY_METRICS
     try:
         profile = Profile(profile_name)
     except FileNotFoundError as e:
@@ -45,25 +53,21 @@ def _metrics_for(profile_name: str) -> dict:
 
 @router.get("/")
 def dashboard(request: Request):
-    profile_name = state.active_profile()
-    metrics = _metrics_for(profile_name) if profile_name else {
-        "total_applied": 0, "in_pipeline": 0, "offers": 0, "rejections": 0,
-        "response_rate": 0.0, "responses_count": 0, "recent": [],
-    }
+    metrics = _metrics_for(state.active_profile())
     return templates.TemplateResponse(
         request, "dashboard.html",
-        template_context(request, page_title="Dashboard", metrics=metrics),
+        template_context(
+            request, page_title="Dashboard",
+            metrics=metrics,
+            status_badge_class=STATUS_BADGE_CLASS,
+        ),
     )
 
 
 @router.get("/_metrics")
 def metrics_partial(request: Request):
-    profile_name = state.active_profile()
-    metrics = _metrics_for(profile_name) if profile_name else {
-        "total_applied": 0, "in_pipeline": 0, "offers": 0, "rejections": 0,
-        "response_rate": 0.0, "responses_count": 0, "recent": [],
-    }
+    metrics = _metrics_for(state.active_profile())
     return templates.TemplateResponse(
         request, "_metrics.html",
-        {"request": request, "metrics": metrics},
+        {"request": request, "metrics": metrics, "status_badge_class": STATUS_BADGE_CLASS},
     )

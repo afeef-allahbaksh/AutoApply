@@ -1,14 +1,3 @@
-{% set status_class = {
-  "applied": "badge-info",
-  "screen": "badge-info",
-  "technical": "badge-info",
-  "onsite": "badge-info",
-  "offer": "badge-success",
-  "rejected": "badge-danger",
-  "failed": "badge-danger",
-  "review_pending": "badge-warning",
-  "skipped": "badge-neutral",
-} %}
 <section class="stat-grid">
   <div class="stat-cell">
     <div class="label">Total applied</div>
@@ -53,7 +42,7 @@
         <tbody>
           {% for a in metrics.recent %}
             <tr>
-              <td><span class="badge {{ status_class.get(a.get('status'), 'badge-neutral') }}">{{ a.get('status', '—') }}</span></td>
+              <td><span class="badge {{ status_badge_class.get(a.get('status'), 'badge-neutral') }}">{{ a.get('status', '—') }}</span></td>
               <td style="font-weight: 500;">{{ a.get('company', '—') }}</td>
               <td style="color: var(--ink-muted);">{{ a.get('role', '—') }}</td>
               <td><span class="mono">{{ a.get('status_updated_at') or a.get('date', '—') }}</span></td>

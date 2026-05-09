@@ -4,67 +4,37 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from src.applicant import _save_applications
-from src.profile_loader import Profile
 
 from .. import state
 from ..deps import template_context
+from ..pipeline import (
+    ALL_STATUSES,
+    COLUMN_HEADERS,
+    KANBAN_COLUMNS,
+    PIPELINE,
+    STATUS_BADGE_CLASS,
+    kanban_groups,
+    load_applications,
+)
 from ..templates_loader import templates
 
 router = APIRouter()
 
-ALL_STATUSES = [
-    "applied", "screen", "technical", "onsite", "offer",
-    "rejected", "failed", "review_pending", "skipped",
-]
-
-PIPELINE = ["applied", "screen", "technical", "onsite", "offer"]
-KANBAN_COLUMNS = PIPELINE + ["rejected"]
-
-
-def _load_apps(profile_name: str) -> list:
-    try:
-        profile = Profile(profile_name)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return list(profile.applications)
-
-
-def _kanban_groups(apps: list, search: str) -> tuple[dict, list]:
-    enriched = [{**a, "_idx": i} for i, a in enumerate(apps)]
-    if search:
-        s = search.lower()
-        enriched = [a for a in enriched if s in a.get("company", "").lower() or s in a.get("role", "").lower()]
-
-    columns = {col: [] for col in KANBAN_COLUMNS}
-    closed = []
-    for a in enriched:
-        st = a.get("status")
-        if st in columns:
-            columns[st].append(a)
-        else:
-            closed.append(a)
-
-    def sort_key(a):
-        return a.get("status_updated_at") or a.get("date") or ""
-
-    for col in columns:
-        columns[col].sort(key=sort_key, reverse=True)
-    closed.sort(key=sort_key, reverse=True)
-    return columns, closed
-
 
 def _render_kanban(request: Request, profile_name: str, search: str = "") -> HTMLResponse:
-    apps = _load_apps(profile_name) if profile_name else []
-    columns, closed = _kanban_groups(apps, search)
+    apps = load_applications(profile_name) if profile_name else []
+    columns, closed = kanban_groups(apps, search)
     return templates.TemplateResponse(
         request, "_app_kanban.html",
         {
             "request": request,
             "columns": columns,
             "kanban_columns": KANBAN_COLUMNS,
+            "column_headers": COLUMN_HEADERS,
             "closed": closed,
             "all_statuses": ALL_STATUSES,
             "pipeline": PIPELINE,
+            "status_badge_class": STATUS_BADGE_CLASS,
         },
     )
 
@@ -75,21 +45,9 @@ def applications_page(request: Request, q: str = ""):
     from src.inbox import auth as gmail_auth
 
     profile_name = state.active_profile()
-    apps = _load_apps(profile_name) if profile_name else []
-    columns, closed = _kanban_groups(apps, q)
-    raw_proposals = inbox_sync.load_proposals(profile_name) if profile_name else []
-    # Inline-enrich ambiguous proposals so the template can render candidate labels.
-    proposals = []
-    for p in raw_proposals:
-        e = dict(p)
-        if p.get("resolution") == "ambiguous":
-            labels = []
-            for cidx in p.get("candidates", []) or []:
-                if 0 <= cidx < len(apps):
-                    role = (apps[cidx].get("role") or "")[:40]
-                    labels.append({"idx": cidx, "label": f"{apps[cidx].get('company', '?')} · {role}"})
-            e["candidate_labels"] = labels
-        proposals.append(e)
+    apps = load_applications(profile_name) if profile_name else []
+    columns, closed = kanban_groups(apps, q)
+    proposals = inbox_sync.enrich_proposals(profile_name) if profile_name else []
     gmail_connected = gmail_auth.is_connected(profile_name) if profile_name else False
     return templates.TemplateResponse(
         request, "applications.html",
@@ -98,10 +56,12 @@ def applications_page(request: Request, q: str = ""):
             page_title="Applications",
             columns=columns,
             kanban_columns=KANBAN_COLUMNS,
+            column_headers=COLUMN_HEADERS,
             closed=closed,
             q=q,
             all_statuses=ALL_STATUSES,
             pipeline=PIPELINE,
+            status_badge_class=STATUS_BADGE_CLASS,
             proposals=proposals,
             gmail_connected=gmail_connected,
             sync_msg="",
@@ -128,7 +88,7 @@ def add_manual(
     profile_name = state.active_profile()
     lock = state.profile_lock(profile_name)
     with lock:
-        apps = _load_apps(profile_name)
+        apps = load_applications(profile_name)
         entry = {
             "company": company.strip(),
             "role": role.strip(),
@@ -152,7 +112,7 @@ def patch_status(request: Request, idx: int, new_status: str = Form(...)):
     profile_name = state.active_profile()
     lock = state.profile_lock(profile_name)
     with lock:
-        apps = _load_apps(profile_name)
+        apps = load_applications(profile_name)
         if not 0 <= idx < len(apps):
             raise HTTPException(status_code=404, detail="application not found")
         apps[idx]["status"] = new_status
@@ -164,7 +124,7 @@ def patch_status(request: Request, idx: int, new_status: str = Form(...)):
 @router.get("/applications/{idx}/edit")
 def edit_form(request: Request, idx: int):
     profile_name = state.active_profile()
-    apps = _load_apps(profile_name)
+    apps = load_applications(profile_name)
     if not 0 <= idx < len(apps):
         raise HTTPException(status_code=404, detail="application not found")
     row = {**apps[idx], "_idx": idx}
@@ -177,7 +137,7 @@ def edit_form(request: Request, idx: int):
 @router.get("/applications/{idx}/card")
 def get_card(request: Request, idx: int):
     profile_name = state.active_profile()
-    apps = _load_apps(profile_name)
+    apps = load_applications(profile_name)
     if not 0 <= idx < len(apps):
         raise HTTPException(status_code=404, detail="application not found")
     row = {**apps[idx], "_idx": idx}
@@ -203,7 +163,7 @@ def patch_application(
     profile_name = state.active_profile()
     lock = state.profile_lock(profile_name)
     with lock:
-        apps = _load_apps(profile_name)
+        apps = load_applications(profile_name)
         if not 0 <= idx < len(apps):
             raise HTTPException(status_code=404, detail="application not found")
         existing = apps[idx]
@@ -230,7 +190,7 @@ def delete_application(request: Request, idx: int):
     profile_name = state.active_profile()
     lock = state.profile_lock(profile_name)
     with lock:
-        apps = _load_apps(profile_name)
+        apps = load_applications(profile_name)
         if not 0 <= idx < len(apps):
             raise HTTPException(status_code=404, detail="application not found")
         apps.pop(idx)

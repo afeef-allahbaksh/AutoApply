@@ -95,6 +95,31 @@ def remove_proposal(profile_name: str, proposal_id: str) -> dict | None:
     return found
 
 
+def enrich_proposals(profile_name: str) -> list[dict]:
+    """Return proposals with candidate labels resolved for ambiguous matches.
+
+    The labels include company + role so the review queue can render a meaningful
+    picker — proposals.json stores only candidate indices.
+    """
+    proposals = load_proposals(profile_name)
+    if not proposals:
+        return []
+    profile = Profile(profile_name)
+    apps = list(profile.applications)
+    out = []
+    for p in proposals:
+        e = dict(p)
+        if p.get("resolution") == "ambiguous":
+            labels = []
+            for cidx in p.get("candidates") or []:
+                if 0 <= cidx < len(apps):
+                    role = (apps[cidx].get("role") or "")[:40]
+                    labels.append({"idx": cidx, "label": f"{apps[cidx].get('company', '?')} · {role}"})
+            e["candidate_labels"] = labels
+        out.append(e)
+    return out
+
+
 def _prefilter(msg: dict) -> bool:
     if msg.get("from_email", "") in PREFILTER_IGNORE_SENDERS:
         return False
