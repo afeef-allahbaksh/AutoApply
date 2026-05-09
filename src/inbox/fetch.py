@@ -64,7 +64,7 @@ def _headers_to_dict(headers: list) -> dict:
     return {h["name"].lower(): h["value"] for h in headers}
 
 
-def list_messages_since(creds, since_dt: datetime, max_results: int = 200, extra_query: str = "") -> list[dict]:
+def list_messages_since(creds, since_dt: datetime, max_results: int = 200) -> list[dict]:
     """Return parsed Gmail messages received after since_dt.
 
     Capped at max_results so a stale sync doesn't take forever. Each message dict:
@@ -73,8 +73,6 @@ def list_messages_since(creds, since_dt: datetime, max_results: int = 200, extra
     service = build("gmail", "v1", credentials=creds, cache_discovery=False)
     epoch = int(since_dt.timestamp())
     query = f"after:{epoch} {DEFAULT_QUERY_TAIL}"
-    if extra_query:
-        query = f"{query} {extra_query}"
 
     messages: list[dict] = []
     page_token = None

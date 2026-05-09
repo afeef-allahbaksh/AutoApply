@@ -25,9 +25,12 @@ from ..templates_loader import templates
 router = APIRouter()
 
 
-def _render_kanban(request: Request, profile_name: str, search: str = "") -> HTMLResponse:
+def _render_kanban(request: Request, profile_name: str) -> HTMLResponse:
+    """Render only the #kanban-grid partial — used by mutation handlers (drag,
+    edit, delete, manual add). The page-level search filter is intentionally
+    dropped on re-render so a moved card always appears in its new column."""
     apps = load_applications(profile_name) if profile_name else []
-    columns, closed = kanban_groups(apps, search)
+    columns, closed = kanban_groups(apps)
     return templates.TemplateResponse(
         request, "_app_kanban.html",
         {

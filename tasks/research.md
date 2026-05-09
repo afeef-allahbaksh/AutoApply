@@ -1,6 +1,23 @@
 # ATS Public API Research: Greenhouse & Lever
 
-Research conducted 2026-03-31 with live API testing.
+Research conducted 2026-03-31 with live API testing. Frozen-in-time snapshot.
+
+> **Scope of this document.** This was the pre-implementation pass for the
+> Greenhouse and Lever public APIs that drive `src/discovery.py` and
+> `src/job_discovery.py`. Subsequent integration work (Gmail OAuth, Claude
+> email classification, kanban UI) didn't need standalone research docs —
+> the canonical references live in the corresponding source files:
+>
+> - **Gmail API** — `src/inbox/auth.py` (OAuth scope and token persistence),
+>   `src/inbox/fetch.py` (message list + body extraction). Google's docs
+>   at <https://developers.google.com/gmail/api> are the source of truth.
+> - **Claude email classification prompt** — `src/inbox/classify.py:PROMPT`
+>   documents the prompt design and JSON schema inline.
+> - **Application matching algorithm** — `src/inbox/matcher.py` is short
+>   enough to read directly; thread-id wins over fuzzy company match.
+>
+> Future research that goes beyond reading external docs (e.g. an Ashby or
+> Workday ATS pass) should be added as new top-level sections below.
 
 ---
 

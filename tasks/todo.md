@@ -134,9 +134,45 @@
 - [x] Fit score column in history command
 - [x] Removed unused imports (os, date from resume_optimizer; Path from job_discovery)
 
+## Phase 15: Local FastAPI Dashboard
+- [x] FastAPI skeleton with sidebar layout, profile switcher, and design tokens (`src/ui/`)
+- [x] Editorial-mono design system (Fraunces + Inter, off-white canvas, hairline rules, forest accent) — no DaisyUI/Flowbite/generic Tailwind
+- [x] Dashboard page with metrics and 10s HTMX polling (`/_metrics`)
+- [x] Applications kanban with 6 columns (applied / screen / technical / onsite / offer / rejected)
+- [x] Drag-and-drop between columns via Sortable.js — optimistic UI with PATCH on drop
+- [x] Hover-revealed edit/delete actions on cards; manual add inline form
+- [x] Jobs page with filter form, refresh button, per-row Track button (creates a manual application entry — never submits via Playwright)
+- [x] Companies page with auto-detect ATS add form
+- [x] Settings page editing `profile.json` and `responses.json` with validation, plus optional Claude role expansion
+- [x] Cold email v2 placeholder reserved in sidebar
+- [x] `python main.py --profile {name} ui [--port 8000]` launcher
+
+## Phase 16: Persistent Browser Session
+- [x] `get_browser_context` accepts `storage_state_path` parameter (`src/browser.py`)
+- [x] `apply_to_jobs` saves `profiles/{name}/browser_state.json` on completion so 2FA cookies carry across runs
+
+## Phase 17: Application Status Lifecycle Extension
+- [x] Extend `applications.json` status enum with interview-pipeline values (`screen`, `technical`, `onsite`, `offer`, `rejected`)
+- [x] Add `notes`, `status_updated_at` (re-stamped on every status change), and `source` (`autoapply` | `manual` | `email`) fields
+- [x] Add `email_thread_ids` array linking entries to inbox threads
+- [x] Update every `applications.append({...})` site in `applicant.py` to stamp `status_updated_at` + `source`
+
+## Phase 18: Gmail Inbox Integration (Read-Only)
+- [x] Google OAuth flow with per-profile token persistence (`src/inbox/auth.py`)
+- [x] Settings page Gmail card — credentials.json upload + Connect / Disconnect / status badge
+- [x] Gmail message fetcher with body extraction and pagination (`src/inbox/fetch.py`)
+- [x] Heuristic prefilter — skip LinkedIn/Indeed/newsletter senders and noise subjects
+- [x] Claude classifier — batched (10/call) classification into `new_application` / `status_update` / `ignore`
+- [x] Application matcher — thread-id pin first, then fuzzy company + role tokens
+- [x] Sync orchestrator with `processed_message_ids` cap (5000) and proposals.json persistence
+- [x] Review queue panel above kanban with Apply / Dismiss / View buttons
+- [x] Apply for `new_application` creates entry with `source="email"` and links thread id
+- [x] Apply for `status_update` moves matched card and appends thread id
+
 ## Future (v2+)
 - [ ] Ashby ATS support
 - [ ] Crunchbase API for richer company discovery
-- [ ] React frontend for review UI
 - [ ] Workday support
-- [ ] Analytics dashboard (application stats, response rates)
+- [ ] Cold email composer + tracker (sidebar slot reserved)
+- [ ] Stable application IDs instead of list indices (avoids two-tab drag race)
+- [ ] Background daemon mode for periodic Gmail sync without dashboard open
