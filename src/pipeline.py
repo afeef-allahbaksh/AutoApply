@@ -7,7 +7,7 @@ from src.profile_loader import Profile
 from src.resume_diff import diff_resumes
 from src.resume_optimizer import (
     batch_select_projects, find_cached_resume, optimize_resume,
-    _optimization_hash, save_tailored_resume, select_projects,
+    _optimization_hash, save_tailored_resume,
 )
 from src.schemas import validate_resume
 

@@ -1,7 +1,6 @@
 import hashlib
 import json
 import re
-from pathlib import Path
 
 from src.api import create_message
 from src.profile_loader import PROFILES_DIR
