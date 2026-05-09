@@ -44,10 +44,10 @@ For every classified email return:
 Output JSON ONLY — an array with the same length and order as the input emails. No markdown, no commentary.
 
 Input emails:
-{emails_json}
+__EMAILS_JSON__
 
 Required output schema (one entry per input email):
-[{{"id": "<copied from input>", "action_type": "...", "company": "...", "role": "...", "status": "...", "confidence": 0.0, "reasoning": "..."}}, ...]
+[{"id": "<copied from input>", "action_type": "...", "company": "...", "role": "...", "status": "...", "confidence": 0.0, "reasoning": "..."}, ...]
 """
 
 
@@ -88,7 +88,9 @@ def classify_batch(messages: list[dict]) -> list[dict]:
         }
         for m in messages
     ]
-    prompt = PROMPT.format(emails_json=json.dumps(payload, ensure_ascii=False))
+    # Plain replace instead of str.format so literal `{...}` in the prompt body
+    # (set notation, JSON example) doesn't trigger KeyError on missing fields.
+    prompt = PROMPT.replace("__EMAILS_JSON__", json.dumps(payload, ensure_ascii=False))
 
     response = create_message(
         model=CLASSIFY_MODEL,
