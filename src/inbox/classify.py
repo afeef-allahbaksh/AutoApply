@@ -3,7 +3,9 @@ import json
 
 from src.api import create_message
 
-CLASSIFY_MODEL = "claude-sonnet-4-5-20250929"
+# Haiku — same accuracy on this binary-classification task as Sonnet, 4x cheaper,
+# and 3x higher Tier 1 rate limit (~100K input TPM vs. 30K). Sonnet was overkill.
+CLASSIFY_MODEL = "claude-haiku-4-5-20251001"
 BATCH_SIZE = 10
 BODY_CHARS = 800
 
@@ -143,7 +145,9 @@ def classify_batch(messages: list[dict]) -> list[dict]:
     return results
 
 
-CLASSIFY_PARALLELISM = 5
+# 2 in flight stays well under Haiku's 100K input TPM with batches sized at
+# ~3.4K tokens each; bigger numbers triggered 429s on the deep-sync first wave.
+CLASSIFY_PARALLELISM = 2
 
 
 def classify_messages(messages: list[dict]) -> list[dict]:

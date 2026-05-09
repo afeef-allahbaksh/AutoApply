@@ -1,3 +1,4 @@
+import random
 import time
 
 import anthropic
@@ -16,11 +17,12 @@ def get_client() -> anthropic.Anthropic:
     return _client
 
 
-def create_message(retries: int = 3, **kwargs) -> anthropic.types.Message:
-    """Call client.messages.create with exponential backoff on transient errors.
+def create_message(retries: int = 5, **kwargs) -> anthropic.types.Message:
+    """Call client.messages.create with exponential backoff + jitter on transient errors.
 
-    Retries on overloaded (529), rate limit (429), and connection errors.
-    All keyword arguments are passed through to messages.create.
+    Retries on overloaded (529), rate limit (429), and connection errors. Jitter
+    matters when multiple worker threads hit the same rate-limit window — without
+    it they all retry on the same second and 429 again.
     """
     client = get_client()
     for attempt in range(retries):
@@ -32,6 +34,7 @@ def create_message(retries: int = 3, **kwargs) -> anthropic.types.Message:
                 raise
             if attempt == retries - 1:
                 raise
-            delay = (2 ** attempt)  # 1s, 2s, 4s
-            print(f"  API error (attempt {attempt + 1}/{retries}), retrying in {delay}s: {e}")
+            # 1s, 2s, 4s, 8s, 16s base + 0-1s jitter to break worker-thread collisions
+            delay = (2 ** attempt) + random.uniform(0, 1)
+            print(f"  API error (attempt {attempt + 1}/{retries}), retrying in {delay:.1f}s: {e}")
             time.sleep(delay)
