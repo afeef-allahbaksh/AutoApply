@@ -95,6 +95,10 @@ def classify_batch(messages: list[dict]) -> list[dict]:
     # (set notation, JSON example) doesn't trigger KeyError on missing fields.
     prompt = PROMPT.replace("__EMAILS_JSON__", json.dumps(payload, ensure_ascii=False))
 
+    # Conservative chars→tokens estimate (~1 token per 3 chars). The bucket
+    # sleeps if firing now would push the per-minute window over budget.
+    reserve_input_tokens(len(prompt) // 3)
+
     response = create_message(
         model=CLASSIFY_MODEL,
         max_tokens=2000,

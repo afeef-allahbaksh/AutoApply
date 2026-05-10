@@ -27,6 +27,7 @@ def _render_main(request: Request, profile_name: str, sync_msg: str = "", sync_e
     apps = load_applications(profile_name) if profile_name else []
     columns, closed = kanban_groups(apps)
     proposals = inbox_sync.enrich_proposals(profile_name) if profile_name else []
+    sync_status = inbox_sync.read_sync_status(profile_name) if profile_name else {"state": "idle"}
     return templates.TemplateResponse(
         request, "_applications_main.html",
         {
@@ -39,6 +40,8 @@ def _render_main(request: Request, profile_name: str, sync_msg: str = "", sync_e
             "pipeline": PIPELINE,
             "status_badge_class": STATUS_BADGE_CLASS,
             "proposals": proposals,
+            "sync_status": sync_status,
+            "sync_running": sync_status.get("state") == "running",
             "sync_msg": sync_msg,
             "sync_err": sync_err,
         },
@@ -47,25 +50,26 @@ def _render_main(request: Request, profile_name: str, sync_msg: str = "", sync_e
 
 @router.post("/email/sync")
 def sync_inbox(request: Request, deep: str = Form("")):
+    """Spawn a background sync and return immediately.
+
+    The kanban polls /email/sync_status every 4s while a sync is running and
+    sees proposals appear as the worker writes them.
+    """
     profile_name = state.active_profile()
-    lock = state.profile_lock(profile_name)
-    # Non-blocking: a sync can take 30s+ (or several minutes for deep mode);
-    # if one is already running, surface that immediately rather than queue.
-    if not lock.acquire(blocking=False):
-        return _render_main(request, profile_name, sync_err="Another action is in progress; try again shortly.")
-    try:
-        result = inbox_sync.sync_now(profile_name, deep=bool(deep))
-    finally:
-        lock.release()
-    if not result.get("ok"):
-        return _render_main(request, profile_name, sync_err=result.get("error", "Sync failed."))
+    started, message = inbox_sync.start_background_sync(profile_name, deep=bool(deep))
+    if not started:
+        return _render_main(request, profile_name, sync_err=message)
     mode = "Full history sync" if deep else "Sync"
-    summary = (
-        f"{mode} complete: {result.get('messages_seen', 0)} new messages seen, "
-        f"{result.get('after_prefilter', 0)} survived prefilter, "
-        f"{result.get('new_proposals', 0)} new proposals."
-    )
-    return _render_main(request, profile_name, sync_msg=summary)
+    return _render_main(request, profile_name, sync_msg=f"{mode} started in the background.")
+
+
+@router.get("/email/sync_status")
+def sync_status_partial(request: Request):
+    """Polled by the in-progress UI. Returns the same #applications-content block
+    every time; when status flips to idle the wrapper renders without an
+    hx-trigger, so polling stops naturally."""
+    profile_name = state.active_profile()
+    return _render_main(request, profile_name)
 
 
 @router.post("/email/proposals/{proposal_id}/apply")

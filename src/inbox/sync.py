@@ -1,10 +1,18 @@
-"""Sync orchestrator — fetch -> prefilter -> classify -> match -> write proposals."""
+"""Sync orchestrator — fetch -> prefilter -> classify -> match -> write proposals.
+
+Long syncs run on a background thread so the UI returns immediately and can
+poll for progress. Each chunk's proposals are persisted as soon as they're
+matched, so the kanban fills in progressively rather than waiting for the
+entire batch to finish.
+"""
 import json
 import re
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from src.inbox import auth, classify, fetch, matcher
+from src.inbox.fetch import _chunked
 from src.profile_loader import Profile
 from src.schemas import validate_inbox_state, validate_proposals
 
@@ -13,6 +21,10 @@ DEFAULT_MAX_MESSAGES = 1000
 DEEP_LOOKBACK_DAYS = 1825
 DEEP_MAX_MESSAGES = 5000
 MIN_CONFIDENCE = 0.6
+# Messages per pipeline chunk — drives how often the UI sees a progress update
+# and how often new proposals appear on the kanban. ~2 batches per chunk at
+# default BATCH_SIZE=15, ~6-10s per chunk.
+CLASSIFY_CHUNK_SIZE = 30
 # Cap processed_message_ids so the state.json doesn't grow unbounded over months
 # of syncs. New messages are queried by `after:` timestamp, so the dedup window
 # only needs to cover the lookback period of the most recent sync.
@@ -55,6 +67,32 @@ def state_path(profile_name: str) -> Path:
 
 def proposals_path(profile_name: str) -> Path:
     return auth.imap_dir(profile_name) / "proposals.json"
+
+
+def status_path(profile_name: str) -> Path:
+    return auth.imap_dir(profile_name) / "sync_status.json"
+
+
+def read_sync_status(profile_name: str) -> dict:
+    p = status_path(profile_name)
+    if not p.exists():
+        return {"state": "idle"}
+    try:
+        with open(p) as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {"state": "idle"}
+
+
+def _write_sync_status(profile_name: str, **fields) -> None:
+    """Read-modify-write sync_status.json with the given fields merged in."""
+    current = read_sync_status(profile_name)
+    current.update(fields)
+    p = status_path(profile_name)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "w") as f:
+        json.dump(current, f, indent=2)
+        f.write("\n")
 
 
 def load_state(profile_name: str) -> dict:
@@ -134,6 +172,13 @@ def _prefilter(msg: dict) -> bool:
     return True
 
 
+def _proposal_lock(profile_name: str):
+    """Per-profile lock around proposals.json so the worker thread and UI
+    apply/dismiss handlers don't clobber each other's writes."""
+    from src.ui.state import profile_lock
+    return profile_lock(profile_name)
+
+
 def _build_proposal(msg: dict, classified: dict, match: dict) -> dict:
     return {
         "id": msg["id"],
@@ -154,17 +199,70 @@ def _build_proposal(msg: dict, classified: dict, match: dict) -> dict:
     }
 
 
-def sync_now(profile_name: str, deep: bool = False) -> dict:
-    """Run a full sync. Returns a summary dict with counts.
+_active_threads: dict[str, threading.Thread] = {}
+_thread_registry_lock = threading.Lock()
 
-    Steps: header-fetch -> prefilter -> body-fetch survivors -> classify -> match -> proposals.
 
-    `deep=True` ignores last_sync_at and pulls 5 years / 5000 messages. Use it once on
-    initial setup to backfill history; thereafter the incremental defaults are enough.
+def start_background_sync(profile_name: str, deep: bool = False) -> tuple[bool, str]:
+    """Spawn a daemon thread that runs the sync to completion.
+
+    Returns (started, message). started=False means a sync is already running
+    for this profile; the existing one continues.
     """
+    with _thread_registry_lock:
+        existing = _active_threads.get(profile_name)
+        if existing is not None and existing.is_alive():
+            return False, "Sync already in progress for this profile."
+        t = threading.Thread(
+            target=_sync_worker,
+            args=(profile_name, deep),
+            daemon=True,
+            name=f"inbox-sync-{profile_name}",
+        )
+        _active_threads[profile_name] = t
+        t.start()
+    return True, "Sync started."
+
+
+def _sync_worker(profile_name: str, deep: bool) -> None:
+    """Outer wrapper for the background thread — initializes status, traps errors."""
+    started_at = datetime.now(timezone.utc).isoformat()
+    _write_sync_status(
+        profile_name,
+        state="running",
+        deep=deep,
+        started_at=started_at,
+        completed_at=None,
+        messages_seen=0,
+        after_prefilter=0,
+        classified=0,
+        new_proposals=0,
+        error=None,
+        message="Connecting to inbox…",
+    )
+    try:
+        _run_sync_streaming(profile_name, deep)
+        _write_sync_status(
+            profile_name,
+            state="idle",
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            message="Sync complete.",
+        )
+    except Exception as e:  # noqa: BLE001 — top-of-thread catch-all is intentional
+        _write_sync_status(
+            profile_name,
+            state="error",
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            error=str(e)[:240],
+        )
+        print(f"[inbox] sync worker crashed: {e}")
+
+
+def _run_sync_streaming(profile_name: str, deep: bool) -> None:
+    """The actual pipeline. Writes proposals incrementally; updates sync_status."""
     creds = auth.load_credentials(profile_name)
     if not creds:
-        return {"ok": False, "error": "Inbox not connected. Connect on the Settings page first."}
+        raise RuntimeError("Inbox not connected. Connect on the Settings page first.")
 
     state = load_state(profile_name)
     processed_ids = set(state.get("processed_message_ids", []))
@@ -181,33 +279,72 @@ def sync_now(profile_name: str, deep: bool = False) -> dict:
         max_messages = DEFAULT_MAX_MESSAGES
 
     print(f"[inbox] sync starting (deep={deep}, since={since_dt.date()}, max={max_messages})")
-    try:
-        headers = fetch.list_message_headers_since(creds, since_dt, max_results=max_messages)
-    except Exception as e:
-        return {"ok": False, "error": f"Inbox header fetch failed: {e}"}
+    _write_sync_status(profile_name, message="Fetching headers from IMAP…")
+    headers = fetch.list_message_headers_since(creds, since_dt, max_results=max_messages)
     print(f"[inbox] fetched {len(headers)} headers")
 
     new_messages = [m for m in headers if m["id"] not in processed_ids]
     survivors = [m for m in new_messages if _prefilter(m)]
     print(f"[inbox] {len(new_messages)} new, {len(survivors)} survived prefilter")
+    _write_sync_status(
+        profile_name,
+        messages_seen=len(new_messages),
+        after_prefilter=len(survivors),
+        message=f"Fetching bodies for {len(survivors)} candidates…",
+    )
 
-    if survivors:
-        try:
-            fetch.populate_bodies(creds, survivors)
-        except Exception as e:
-            return {"ok": False, "error": f"Inbox body fetch failed: {e}"}
-        print(f"[inbox] bodies fetched; classifying...")
+    if not survivors:
+        # No bodies to fetch, nothing to classify. Still bump state so the next
+        # sync starts from now.
+        _commit_state(profile_name, processed_ids, new_messages)
+        return
 
-    classified = classify.classify_messages(survivors) if survivors else []
+    fetch.populate_bodies(creds, survivors)
+    print(f"[inbox] bodies fetched; classifying in chunks of {CLASSIFY_CHUNK_SIZE}…")
+    _write_sync_status(profile_name, message="Classifying with Claude…")
 
+    classified_total = 0
+    new_proposals_total = 0
+
+    for chunk in _chunked(survivors, CLASSIFY_CHUNK_SIZE):
+        chunk_classified = classify.classify_messages(chunk)
+        chunk_new = _propose_for_chunk(profile_name, chunk, chunk_classified)
+
+        if chunk_new:
+            with _proposal_lock(profile_name):
+                latest = load_proposals(profile_name)
+                latest_ids = {p["id"] for p in latest}
+                additions = [p for p in chunk_new if p["id"] not in latest_ids]
+                if additions:
+                    save_proposals(profile_name, latest + additions)
+            new_proposals_total += len(chunk_new)
+
+        classified_total += len(chunk)
+        _write_sync_status(
+            profile_name,
+            classified=classified_total,
+            new_proposals=new_proposals_total,
+            message=(
+                f"Classified {classified_total}/{len(survivors)} · "
+                f"{new_proposals_total} proposals so far"
+            ),
+        )
+
+    _commit_state(profile_name, processed_ids, new_messages)
+    print(f"[inbox] sync done: {new_proposals_total} new proposals")
+
+
+def _propose_for_chunk(profile_name: str, chunk: list[dict], classified: list[dict]) -> list[dict]:
+    """Match each classified message to an application and build proposals.
+
+    Re-loads applications fresh per chunk so updates the user makes during the
+    sync (applying/dismissing proposals, manual adds) feed into matching.
+    """
     profile = Profile(profile_name)
     applications = list(profile.applications)
-
-    existing_proposals = load_proposals(profile_name)
-    existing_ids = {p["id"] for p in existing_proposals}
-    new_proposals = []
-
-    for msg, c in zip(survivors, classified):
+    existing_ids = {p["id"] for p in load_proposals(profile_name)}
+    out = []
+    for msg, c in zip(chunk, classified):
         if c["action_type"] == "ignore":
             continue
         if c["confidence"] < MIN_CONFIDENCE:
@@ -216,25 +353,15 @@ def sync_now(profile_name: str, deep: bool = False) -> dict:
             continue
         match = matcher.match_application(c, applications, thread_id=msg.get("thread_id", ""))
         if c["action_type"] == "status_update" and match["resolution"] == "no_match":
-            # Don't propose status updates we can't anchor to an entry.
             continue
-        new_proposals.append(_build_proposal(msg, c, match))
+        out.append(_build_proposal(msg, c, match))
         existing_ids.add(msg["id"])
+    return out
 
-    if new_proposals:
-        save_proposals(profile_name, existing_proposals + new_proposals)
 
+def _commit_state(profile_name: str, processed_ids: set, new_messages: list[dict]) -> None:
+    state = load_state(profile_name)
     state["last_sync_at"] = datetime.now(timezone.utc).isoformat()
     combined_ids = list(processed_ids | {m["id"] for m in new_messages})
     state["processed_message_ids"] = combined_ids[-MAX_PROCESSED_IDS:]
     save_state(profile_name, state)
-    print(f"[inbox] sync done: {len(new_proposals)} new proposals")
-
-    return {
-        "ok": True,
-        "messages_seen": len(new_messages),
-        "after_prefilter": len(survivors),
-        "classified": len(classified),
-        "ignored_count": sum(1 for c in classified if c["action_type"] == "ignore"),
-        "new_proposals": len(new_proposals),
-    }
