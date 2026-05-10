@@ -25,7 +25,7 @@
     <a href="/settings" class="btn-ghost" title="Connect your inbox in Settings to enable sync"
        style="opacity: 0.55;">Sync inbox →</a>
   {% endif %}
-  <button class="btn-ghost"
+  <button class="btn-secondary"
           type="button"
           onclick="document.getElementById('manual-add').style.display='block'; this.style.display='none'; document.querySelector('#manual-add input[name=company]').focus(); return false;">+ Add manual</button>
 </div>
@@ -321,7 +321,7 @@
   <form hx-post="/applications"
         hx-target="#kanban-grid"
         hx-swap="outerHTML"
-        hx-on::after-request="this.reset(); document.getElementById('manual-add').style.display='none'; document.querySelector('header.page-head button.btn-ghost').style.display='inline-flex';"
+        hx-on::after-request="this.reset(); document.getElementById('manual-add').style.display='none'; document.querySelector('header.page-head button.btn-secondary').style.display='inline-flex';"
         style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; align-items: end;">
     <div>
       <div class="section-label" style="margin-bottom: 0.25rem;">Company</div>
@@ -354,7 +354,7 @@
     <div style="grid-column: span 4; display: flex; gap: 0.5rem; justify-content: flex-end;">
       <button type="button"
               class="btn-ghost"
-              onclick="document.getElementById('manual-add').style.display='none'; document.querySelector('header.page-head button.btn-ghost').style.display='inline-flex';">Cancel</button>
+              onclick="document.getElementById('manual-add').style.display='none'; document.querySelector('header.page-head button.btn-secondary').style.display='inline-flex';">Cancel</button>
       <button type="submit" class="btn-primary">Save</button>
     </div>
   </form>

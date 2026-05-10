@@ -296,6 +296,43 @@
     }
     .btn-ghost:active { transform: translateY(0); box-shadow: var(--shadow-subtle); }
 
+    /* Secondary — indigo-tinted, less heavy than primary. Use for actions
+       that should read as accent-colored but not compete with the primary
+       action for visual weight (e.g. "Add manual" next to "Sync inbox"). */
+    .btn-secondary {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      background: var(--accent-tint);
+      color: var(--accent-hover);
+      border: 1px solid rgba(129, 140, 248, 0.28);
+      border-radius: var(--radius-sm);
+      padding: 0.4375rem 0.875rem;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: -0.005em;
+      cursor: pointer;
+      box-shadow: var(--shadow-subtle);
+      transition: background var(--duration-fast) var(--ease),
+                  border-color var(--duration-fast) var(--ease),
+                  transform var(--duration-fast) var(--ease),
+                  box-shadow var(--duration-fast) var(--ease);
+    }
+    .btn-secondary:hover {
+      background: rgba(129, 140, 248, 0.2);
+      border-color: var(--accent);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px -2px var(--accent-glow);
+    }
+    .btn-secondary:active {
+      transform: translateY(0);
+      box-shadow: var(--shadow-subtle);
+    }
+    .btn-secondary.btn-sm {
+      padding: 0.3125rem 0.625rem;
+      font-size: 12px;
+      gap: 0.375rem;
+    }
+
     /* Smaller size modifier — used for inline actions on kanban cards,
        proposal queue, and edit forms. Preserves all transitions/effects. */
     .btn-primary.btn-sm,
