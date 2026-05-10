@@ -1,4 +1,6 @@
+import os
 import random
+import threading
 import time
 
 import anthropic
@@ -15,6 +17,46 @@ def get_client() -> anthropic.Anthropic:
     if _client is None:
         _client = anthropic.Anthropic()
     return _client
+
+
+# Sliding-window token bucket for input-TPM rate limiting. Default 45K is
+# conservative under Anthropic Tier 1 Haiku's 50K cap; override with
+# AUTOAPPLY_INPUT_TPM_BUDGET if your tier is higher.
+INPUT_TPM_BUDGET = int(os.environ.get("AUTOAPPLY_INPUT_TPM_BUDGET", "45000"))
+
+_throttle_lock = threading.Lock()
+_token_log: list[tuple[float, int]] = []  # (monotonic_ts, tokens), oldest first
+
+
+def reserve_input_tokens(tokens: int) -> None:
+    """Block until `tokens` can be consumed without exceeding INPUT_TPM_BUDGET.
+
+    Call before sending a message; pass an estimated input-token count. Bursty
+    callers from multiple threads share the budget naturally — the lock is held
+    only while computing the wait, not during sleep.
+    """
+    while True:
+        with _throttle_lock:
+            now = time.monotonic()
+            cutoff = now - 60.0
+            while _token_log and _token_log[0][0] < cutoff:
+                _token_log.pop(0)
+            recent_total = sum(n for _, n in _token_log)
+            if recent_total + tokens <= INPUT_TPM_BUDGET:
+                _token_log.append((now, tokens))
+                return
+            # Compute the earliest moment the in-flight excess will roll out.
+            excess = (recent_total + tokens) - INPUT_TPM_BUDGET
+            running = 0
+            wait_until = now + 60.0  # fallback if a single batch exceeds budget
+            for t, n in _token_log:
+                running += n
+                if running >= excess:
+                    wait_until = t + 60.0
+                    break
+            sleep_for = max(0.2, wait_until - now)
+        # Lock released; sleep, then re-check on the next loop.
+        time.sleep(sleep_for)
 
 
 def create_message(retries: int = 5, **kwargs) -> anthropic.types.Message:

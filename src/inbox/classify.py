@@ -1,12 +1,13 @@
 """Email classifier — Claude decides if a message is application-related and what it implies."""
 import json
 
-from src.api import create_message
+from src.api import create_message, reserve_input_tokens
 
-# Haiku — same accuracy on this binary-classification task as Sonnet, 4x cheaper,
-# and 3x higher Tier 1 rate limit (~100K input TPM vs. 30K). Sonnet was overkill.
+# Haiku — same accuracy on this binary-classification task as Sonnet, 4x cheaper.
+# Tier 1 input limit is 50K TPM; the global token bucket in api.py throttles
+# concurrent callers to stay under that without 429s.
 CLASSIFY_MODEL = "claude-haiku-4-5-20251001"
-BATCH_SIZE = 10
+BATCH_SIZE = 15
 BODY_CHARS = 800
 
 # Single status enum the rest of the system uses.
