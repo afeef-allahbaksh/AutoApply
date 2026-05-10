@@ -494,6 +494,16 @@ def _propose_for_chunk(profile_name: str, chunk: list[dict], classified: list[di
             print(f"[inbox] dedup: skipping new_application proposal for "
                   f"{c.get('company') or '?'} (already on kanban — matched entry/entries: {target})")
             continue
+        # No-op skip: a status_update that wouldn't actually change the
+        # existing entry's status. Common on re-syncs where the same email
+        # gets re-classified (e.g. after a cache rotation).
+        if c["action_type"] == "status_update" and match["resolution"] == "match":
+            tgt = match.get("target_idx")
+            if tgt is not None and 0 <= tgt < len(applications):
+                if applications[tgt].get("status") == c.get("status"):
+                    print(f"[inbox] dedup: skipping no-op status_update for "
+                          f"{c.get('company') or '?'} (already at {c.get('status')})")
+                    continue
         out.append(_build_proposal(msg, c, match))
         existing_ids.add(msg["id"])
     return out
