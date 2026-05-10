@@ -150,11 +150,11 @@ The `ui` subcommand launches a single-user, local-only FastAPI dashboard for tra
 
 - **Dashboard** — Total applied, in-pipeline, offers, rejections, tracked response rate, and the last 10 status updates. Polls every 10s.
 - **Jobs** — Browse `jobs.json` with filters for fit score / company / ATS. Per-row "Track" button creates a manual application entry from the job (for logging applications you submitted via LinkedIn, referrals, or other channels).
-- **Applications** — Sortable table with inline status dropdown (`applied → screen → technical → onsite → offer / rejected`). Manual add, edit, delete. `status_updated_at` is stamped on every status change.
+- **Applications** — A 6-column kanban (`applied → screen → technical → onsite → offer / rejected`) with drag-and-drop between columns via Sortable.js. Inline edit, delete, manual add. `status_updated_at` is re-stamped on every move. Inbox proposals appear in a review queue above the board when sync finds candidate updates.
 - **Companies** — Add/list companies with auto-detect ATS.
-- **Settings** — Edit `profile.json` (roles, locations, salary, levels, industries, auto_submit, rate_limit_seconds), `responses.json` (EEO answers), and the Gmail integration card.
+- **Settings** — Edit `profile.json` (roles, locations, salary, levels, industries, auto_submit, rate_limit_seconds), `responses.json` (EEO answers), and the IMAP inbox card.
 
-Stack: FastAPI + Jinja2 + HTMX + Sortable.js + Tailwind via CDN. Bound to `127.0.0.1`, no auth. Editorial-mono design (Fraunces serif headlines + Inter body, off-white canvas, hairline rules, single forest-green accent).
+Stack: FastAPI + Jinja2 + HTMX + Sortable.js + Tailwind via CDN. Bound to `127.0.0.1`, no auth. Dark theme — deep canvas (`#0d0e13`), indigo accent (`#818cf8`) with violet-shifted wordmark glyph, smooth motion (cubic-bezier easing, hover lift, drag rotation), 3-tier surface elevation (canvas / raised / elevated) via tonal shifts rather than just shadows.
 
 ## Inbox integration (optional, IMAP)
 
@@ -178,19 +178,37 @@ An app password gives **full mailbox access** (read, send, delete) — not the r
 
 ### How sync works
 
-Click **Sync inbox** on the **Applications** page. Each sync:
+Click **Sync inbox** on the **Applications** page. The button kicks off a background worker and returns immediately — the page polls every 4s for progress, and proposals stream into the review queue as the classifier finishes each chunk.
 
-1. Fetches Gmail messages received since the last sync (or the last 30 days on first run).
-2. **Heuristic prefilter** drops obvious noise — LinkedIn / Indeed job alerts, newsletters, "your application was viewed" pings.
-3. **Claude classifier** processes survivors in batches of 10 and decides for each:
-   - `new_application` — an ATS confirmation ("Thanks for applying to Stripe").
-   - `status_update` — interview invite, rejection, or offer for an existing application.
-   - `ignore` — recruiter cold outreach, generic comms, anything off-process.
-4. **Matcher** ties status updates to existing entries by message thread (RFC 822 References / In-Reply-To headers — replies pin to the same root Message-ID as the first email AutoApply saw), then fuzzy company match, narrowed by role-token overlap when multiple entries match the same company.
-5. Proposals land in a review-queue panel above the kanban: each shows the proposed change, source email, and confidence. Click **Apply** to accept, **Dismiss** to drop, or **View** to open the matching message in your mail client (the link uses Gmail's web UI by default — works when you're signed in to Gmail; for other providers, copy the Message-ID and search your client).
-6. Applied proposals tag the entry with `source="email"` (or append the thread to `email_thread_ids` if updating an existing entry).
+Two toggles next to the button:
 
-Auto-update is never silent — every change goes through the review queue. Already-processed messages are remembered in `gmail/state.json` so subsequent syncs skip them.
+- **Full history** — ignore `last_sync_at` and look back 5 years (cap 5000 messages). Use once on initial setup to backfill; the default incremental sync covers everything since the last run.
+- **Free mode** — swap the Claude classifier for a regex-based local classifier. Zero API cost, lower recall, but catches the common patterns ("thank you for applying", "phone screen", "unfortunately", "offer letter", etc.). Useful when out of credits or for cheap incremental syncs.
+
+The pipeline per sync:
+
+1. **IMAP fetch** in two phases — headers only first (bulk FETCH on chunks of 500, returns in 2-5s for thousands of messages), then full bodies for prefilter survivors only (bulk FETCH on chunks of 50). In free mode an IMAP-level keyword filter (`OR (FROM "greenhouse.io") (SUBJECT "interview") ...`) further trims the result set server-side so non-application mail never gets downloaded.
+2. **Heuristic prefilter** drops obvious noise — LinkedIn / Indeed job alerts, newsletters, "your application was viewed" pings — by sender domain + subject regex.
+3. **Classifier** processes survivors in chunks. LLM mode: Haiku 4.5, batches of 15, two workers concurrent, throttled by a sliding-window token bucket (default 45K input TPM, override with `AUTOAPPLY_INPUT_TPM_BUDGET`). Free mode: regex matching on subject + body for status keywords. Both return the same shape (`action_type`, `company`, `role`, `status`, `confidence`).
+4. **Matcher** ties classified emails to existing entries through a cascade of signals:
+   - Stored `email_thread_ids` on existing entries (Message-ID chain match).
+   - Classifier-extracted company name (case-insensitive substring match against `applications.json`).
+   - Sender domain stem (e.g. `noreply@bloomberg.com` → "bloomberg"), skipping ATS relays like `greenhouse-mail.io` whose domain doesn't reveal the actual company.
+   - Subject prefix pattern ("CompanyName - …").
+   - Body scan against company names already on your kanban.
+   When multiple existing entries match the same company, role-token overlap disambiguates.
+5. **Dedup**: if matcher finds an existing entry for a `new_application` proposal (re-confirmation, duplicate from a different ATS system), the proposal is silently skipped — the message id is still marked processed so it doesn't recur. Same for `status_update` proposals that would be no-ops (proposed status already matches existing).
+6. **Fallback for orphan status updates**: if the first email seen for a job is already a follow-up (phone-screen invite, rejection) and there's no existing entry to anchor to, the proposal is upgraded from `status_update` to `new_application` with the proposed status, so you can create a placeholder entry at the right pipeline stage.
+7. Proposals stream into the review-queue panel as chunks complete. Each shows the proposed change, source email subject + sender, confidence dot, and three buttons: **Apply**, **Dismiss**, **View** (deep-links to Gmail web).
+8. Applied proposals mutate `applications.json` and tag the entry with `source="email"` plus the inbound thread id in `email_thread_ids`.
+
+### Sync controls
+
+- **Cancel** — banner shows a Cancel button while a sync runs. Cooperative cancellation at chunk boundaries (~6-10s latency). Cancelled syncs don't commit `processed_message_ids`, so re-running picks up where you left off (proposals already saved skip via the in-loop existing-id check).
+- **Interrupted state** — if uvicorn restarts mid-sync, the status file says "running" but no worker thread exists. The dashboard detects this on the next read and surfaces a yellow "Sync interrupted" banner with a one-click retry. No more zombie "running" badges.
+- **Atomic status writes** — status file written via tmp + rename so a mid-write crash leaves the previous state intact rather than a half-written JSON.
+
+Auto-update is never silent — every change goes through the review queue. Already-processed messages are remembered in `imap/state.json` (capped at 10,000 most recent) so subsequent syncs skip them.
 
 ## Resume Optimization
 

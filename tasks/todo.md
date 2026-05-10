@@ -169,10 +169,48 @@
 - [x] Apply for `new_application` creates entry with `source="email"` and links thread id
 - [x] Apply for `status_update` moves matched card and appends thread id
 
+## Phase 19: Streaming Sync Pipeline + Performance
+- [x] Background daemon thread per profile for non-blocking sync (`start_background_sync` → spawns worker, returns immediately)
+- [x] UI polls `/email/sync_status` every 4s with auto-stop when state flips to idle
+- [x] Two-phase IMAP fetch — headers via bulk FETCH chunks of 500 (no body cost), bodies only for prefilter survivors via chunks of 50
+- [x] Parallel Claude classification via `ThreadPoolExecutor(max_workers=2)`
+- [x] Sliding-window input-TPM token bucket (`src/api.py:reserve_input_tokens`) — default 45K/min, env override
+- [x] Atomic `sync_status.json` writes via tmp + rename
+- [x] Stuck-state detection — `read_sync_status` surfaces `interrupted` when the file says running but no live worker exists in this process
+- [x] Cooperative cancel button — flag in status file, worker checks at chunk boundaries
+- [x] Body fetch retry with reconnect on IMAP connection drop
+- [x] Switch classifier model from Sonnet to Haiku 4.5 (3× higher TPM ceiling, ~4× cheaper, same accuracy on the binary classification task)
+
+## Phase 20: Free Mode Keyword Classifier
+- [x] `src/inbox/keyword_classify.py` — pure-regex classifier with same return shape as LLM classifier
+- [x] Status detection via priority-ordered patterns (offer > rejected > onsite > technical > screen > applied)
+- [x] ATS sender domain heuristic — `*.greenhouse.io`, `*.lever.co`, etc. tagged as "applied" when no keyword fires
+- [x] Company extraction cascade: known applications → sender domain (skipping ATS relays) → sender display name
+- [x] Role extraction via regex patterns ("for the X position")
+- [x] IMAP server-side keyword filter applied in free mode so non-application mail never downloads
+- [x] UI: "Free mode" checkbox next to Sync inbox button
+
+## Phase 21: Matcher Hardening + Dedup
+- [x] Matcher pulls company candidates from multiple sources: classifier output, sender domain, subject prefix, body scan against existing applications
+- [x] ATS relay stems (`greenhouse`, `lever`, `avature`, `myworkdayjobs`, etc.) excluded from sender-domain matching
+- [x] `status_update + no_match` upgraded to `new_application` so orphan interview emails surface a "create entry" proposal instead of getting dropped
+- [x] `new_application + match/ambiguous` silently skipped — re-confirmations don't create duplicates
+- [x] `status_update + match` skipped when proposed status equals existing (no-op guard for re-syncs)
+
+## Phase 22: UI Iteration to Dark Modern Theme
+- [x] Multiple design passes — editorial mono → vercel-clean → light gray with depth → dark theme
+- [x] Final dark theme: canvas `#0d0e13`, raised `#16171d`, sunken `#07080b`, elevated `#1c1d24`
+- [x] Indigo accent `#818cf8` with violet-shifted wordmark gradient
+- [x] Smooth motion across all interactive elements (cubic-bezier easing, hover lift, drag rotation)
+- [x] Three-tier button hierarchy: `btn-primary` (indigo gradient + glow), `btn-secondary` (indigo-tinted), `btn-ghost` (dark elevated surface)
+- [x] `.btn-sm` modifier for compact inline actions
+- [x] `header-checkbox` class with `accent-color: var(--accent)` so checkboxes match the indigo palette
+
 ## Future (v2+)
 - [ ] Ashby ATS support
 - [ ] Crunchbase API for richer company discovery
 - [ ] Workday support
 - [ ] Cold email composer + tracker (sidebar slot reserved)
 - [ ] Stable application IDs instead of list indices (avoids two-tab drag race)
-- [ ] Background daemon mode for periodic Gmail sync without dashboard open
+- [ ] Background daemon mode for periodic inbox sync without dashboard open
+- [ ] Multi-account inbox (currently single IMAP account per profile)
