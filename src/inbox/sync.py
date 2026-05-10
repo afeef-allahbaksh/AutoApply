@@ -313,6 +313,43 @@ def _sync_worker(profile_name: str, deep: bool, classifier: str = "llm") -> None
         print(f"[inbox] sync worker crashed: {e}")
 
 
+# Server-side IMAP filter for free mode — match anything in our keyword set
+# at the inbox level so we don't pay to fetch + parse 5000 messages we'd
+# discard locally anyway. False-negative risk is the same as the keyword
+# classifier (which is what's deciding things in free mode); LLM mode skips
+# this filter so Claude still gets ambiguous messages.
+_FREE_MODE_SENDER_TERMS = [
+    f'FROM "{d}"' for d in (
+        "greenhouse.io", "lever.co", "ashbyhq", "workable",
+        "myworkdayjobs", "smartrecruiters", "bamboohr",
+        "breezy.hr", "jazzhr", "recruitee", "icims", "jobvite",
+    )
+]
+_FREE_MODE_SUBJECT_TERMS = [
+    f'SUBJECT "{kw}"' for kw in (
+        "applying", "application", "interview", "interest",
+        "screen", "offer", "unfortunately", "next steps",
+        "moving forward", "thank you", "thanks for",
+        "take-home", "take home", "onsite", "final round",
+    )
+]
+
+
+def _imap_or_chain(terms: list[str]) -> str:
+    """Right-fold a list of IMAP search keys into a chain of binary ORs.
+    [a, b, c, d] -> 'OR (a) OR (b) OR (c) (d)' which the IMAP parser reads as
+    OR(a, OR(b, OR(c, d)))."""
+    if not terms:
+        return ""
+    if len(terms) == 1:
+        return f"({terms[0]})"
+    return f"OR ({terms[0]}) {_imap_or_chain(terms[1:])}"
+
+
+def _free_mode_search_filter() -> str:
+    return _imap_or_chain(_FREE_MODE_SENDER_TERMS + _FREE_MODE_SUBJECT_TERMS)
+
+
 def _classify_chunk(chunk: list[dict], classifier: str, profile_name: str) -> list[dict]:
     """Dispatch to the requested classifier. Same return shape regardless."""
     if classifier == "keyword":
@@ -345,9 +382,13 @@ def _run_sync_streaming(profile_name: str, deep: bool, classifier: str = "llm") 
             since_dt = datetime.now(timezone.utc) - timedelta(days=INITIAL_LOOKBACK_DAYS)
         max_messages = DEFAULT_MAX_MESSAGES
 
-    print(f"[inbox] sync starting (deep={deep}, since={since_dt.date()}, max={max_messages})")
-    _write_sync_status(profile_name, message="Fetching headers from IMAP…")
-    headers = fetch.list_message_headers_since(creds, since_dt, max_results=max_messages)
+    search_filter = _free_mode_search_filter() if classifier == "keyword" else None
+    filter_label = " (server-side keyword filter)" if search_filter else ""
+    print(f"[inbox] sync starting (deep={deep}, since={since_dt.date()}, max={max_messages}, classifier={classifier}{filter_label})")
+    _write_sync_status(profile_name, message=f"Fetching headers from IMAP{filter_label}…")
+    headers = fetch.list_message_headers_since(
+        creds, since_dt, max_results=max_messages, search_filter=search_filter,
+    )
     print(f"[inbox] fetched {len(headers)} headers")
 
     new_messages = [m for m in headers if m["id"] not in processed_ids]

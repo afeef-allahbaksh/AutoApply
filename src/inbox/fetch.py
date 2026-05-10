@@ -141,12 +141,24 @@ def _msg_to_header_dict(msg: Message, seq: str) -> dict:
     }
 
 
-def list_message_headers_since(creds: ImapCredentials, since_dt: datetime, max_results: int = 200) -> list[dict]:
-    """Phase 1: cheap pull. Returns header-only dicts (no body_text, no snippet)."""
+def list_message_headers_since(
+    creds: ImapCredentials,
+    since_dt: datetime,
+    max_results: int = 200,
+    search_filter: str | None = None,
+) -> list[dict]:
+    """Phase 1: cheap pull. Returns header-only dicts (no body_text, no snippet).
+
+    `search_filter`: optional extra IMAP SEARCH criteria ANDed with SINCE. Use
+    it to push keyword/sender filtering server-side and avoid fetching
+    everything (e.g. for free-mode syncs that wouldn't classify the rest anyway).
+    """
     conn = open_imap(creds)
     try:
         conn.select(INBOX_FOLDER, readonly=True)
-        typ, data = conn.search(None, f'(SINCE "{_imap_date(since_dt)}")')
+        base = f'SINCE "{_imap_date(since_dt)}"'
+        query = f"({base} {search_filter})" if search_filter else f"({base})"
+        typ, data = conn.search(None, query)
         if typ != "OK" or not data or not data[0]:
             return []
         seq_nums = list(reversed(data[0].split()))[:max_results]
