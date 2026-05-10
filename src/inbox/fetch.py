@@ -6,6 +6,7 @@ sets) so a sync of thousands of messages takes seconds, not minutes.
 """
 import email
 import html as html_module
+import imaplib
 import re
 import time
 from datetime import datetime
@@ -170,8 +171,19 @@ def list_message_headers_since(creds: ImapCredentials, since_dt: datetime, max_r
             pass
 
 
+def _open_select(creds: ImapCredentials):
+    conn = open_imap(creds)
+    conn.select(INBOX_FOLDER, readonly=True)
+    return conn
+
+
 def populate_bodies(creds: ImapCredentials, messages: list[dict]) -> None:
-    """Phase 2: fetch full bodies for the given header-dicts in place."""
+    """Phase 2: fetch full bodies for the given header-dicts in place.
+
+    Resilient to mid-fetch connection drops — on a network blip we reconnect
+    once for the failed chunk and retry. If it fails again, that chunk is
+    skipped (those messages get classified on subject+sender alone).
+    """
     if not messages:
         return
     by_seq = {m.get("_seq"): m for m in messages if m.get("_seq")}
@@ -179,25 +191,42 @@ def populate_bodies(creds: ImapCredentials, messages: list[dict]) -> None:
         return
     seqs = list(by_seq.keys())
 
-    conn = open_imap(creds)
+    conn = _open_select(creds)
     try:
-        conn.select(INBOX_FOLDER, readonly=True)
         t0 = time.perf_counter()
-        for chunk in _chunked(seqs, BODY_BULK_CHUNK):
+        skipped = 0
+        for chunk_idx, chunk in enumerate(_chunked(seqs, BODY_BULK_CHUNK)):
             chunk_set = ",".join(chunk).encode()
-            typ, msg_data = conn.fetch(chunk_set, "(BODY.PEEK[])")
-            if typ != "OK":
-                continue
-            for seq, raw in _iter_bulk_fetch(msg_data):
-                target = by_seq.get(seq)
-                if target is None:
-                    continue
-                full_msg = email.message_from_bytes(raw)
-                body = _extract_body(full_msg)
-                target["body_text"] = body
-                target["snippet"] = re.sub(r"\s+", " ", body)[:200]
+            for attempt in range(2):
+                try:
+                    typ, msg_data = conn.fetch(chunk_set, "(BODY.PEEK[])")
+                    if typ != "OK":
+                        break
+                    for seq, raw in _iter_bulk_fetch(msg_data):
+                        target = by_seq.get(seq)
+                        if target is None:
+                            continue
+                        full_msg = email.message_from_bytes(raw)
+                        body = _extract_body(full_msg)
+                        target["body_text"] = body
+                        target["snippet"] = re.sub(r"\s+", " ", body)[:200]
+                    break
+                except (imaplib.IMAP4.abort, imaplib.IMAP4.error, OSError) as e:
+                    if attempt == 0:
+                        print(f"[inbox] body chunk {chunk_idx} failed ({e}); reconnecting")
+                        try:
+                            conn.logout()
+                        except Exception:
+                            pass
+                        conn = _open_select(creds)
+                    else:
+                        skipped += len(chunk)
+                        print(f"[inbox] body chunk {chunk_idx} failed twice; skipping {len(chunk)} messages")
         elapsed = time.perf_counter() - t0
-        print(f"[inbox] body bulk fetch: {len(seqs)} messages in {elapsed:.1f}s")
+        if skipped:
+            print(f"[inbox] body bulk fetch: {len(seqs) - skipped}/{len(seqs)} in {elapsed:.1f}s ({skipped} skipped)")
+        else:
+            print(f"[inbox] body bulk fetch: {len(seqs)} messages in {elapsed:.1f}s")
     finally:
         try:
             conn.logout()

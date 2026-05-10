@@ -72,6 +72,15 @@ def sync_status_partial(request: Request):
     return _render_main(request, profile_name)
 
 
+@router.post("/email/sync_cancel")
+def sync_cancel(request: Request):
+    profile_name = state.active_profile()
+    flipped = inbox_sync.request_cancel(profile_name)
+    msg = "Cancel requested — worker will exit at the next chunk boundary." if flipped \
+          else "No sync running."
+    return _render_main(request, profile_name, sync_msg=msg)
+
+
 @router.post("/email/proposals/{proposal_id}/apply")
 def apply_proposal(request: Request, proposal_id: str, target_idx: str = Form("")):
     profile_name = state.active_profile()
