@@ -15,6 +15,10 @@
              title="Ignore last_sync_at and look back 5 years. Slow (several minutes) — use once to backfill, then leave unchecked.">
         <input type="checkbox" name="deep" value="1"> Full history
       </label>
+      <label style="display: inline-flex; gap: 0.25rem; align-items: center; font-size: 11px; color: var(--ink-soft);"
+             title="Use a free local regex classifier instead of Claude. Catches the common patterns (thank you for applying, phone screen, unfortunately, offer letter, etc.). Lower recall but zero API cost.">
+        <input type="checkbox" name="free_mode" value="1"> Free mode
+      </label>
       <span id="sync-spinner" class="htmx-indicator spinner" style="margin-left: 0.25rem;"></span>
     </form>
   {% else %}

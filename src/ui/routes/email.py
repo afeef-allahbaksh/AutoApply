@@ -49,18 +49,30 @@ def _render_main(request: Request, profile_name: str, sync_msg: str = "", sync_e
 
 
 @router.post("/email/sync")
-def sync_inbox(request: Request, deep: str = Form("")):
+def sync_inbox(
+    request: Request,
+    deep: str = Form(""),
+    free_mode: str = Form(""),
+):
     """Spawn a background sync and return immediately.
 
-    The kanban polls /email/sync_status every 4s while a sync is running and
-    sees proposals appear as the worker writes them.
+    `free_mode` switches the classifier from Claude to a pure-regex local
+    classifier — no API calls, lower recall, but free.
     """
     profile_name = state.active_profile()
-    started, message = inbox_sync.start_background_sync(profile_name, deep=bool(deep))
+    classifier = "keyword" if free_mode else "llm"
+    started, message = inbox_sync.start_background_sync(
+        profile_name, deep=bool(deep), classifier=classifier,
+    )
     if not started:
         return _render_main(request, profile_name, sync_err=message)
-    mode = "Full history sync" if deep else "Sync"
-    return _render_main(request, profile_name, sync_msg=f"{mode} started in the background.")
+    mode_bits = []
+    if deep:
+        mode_bits.append("full history")
+    if free_mode:
+        mode_bits.append("free mode")
+    suffix = f" ({', '.join(mode_bits)})" if mode_bits else ""
+    return _render_main(request, profile_name, sync_msg=f"Sync started in the background{suffix}.")
 
 
 @router.get("/email/sync_status")

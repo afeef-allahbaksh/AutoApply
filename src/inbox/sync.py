@@ -11,7 +11,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from src.inbox import auth, classify, fetch, matcher
+from src.inbox import auth, classify, fetch, keyword_classify, matcher
 from src.inbox.fetch import _chunked
 from src.profile_loader import Profile
 from src.schemas import validate_inbox_state, validate_proposals
@@ -235,12 +235,14 @@ _active_threads: dict[str, threading.Thread] = {}
 _thread_registry_lock = threading.Lock()
 
 
-def start_background_sync(profile_name: str, deep: bool = False) -> tuple[bool, str]:
+def start_background_sync(profile_name: str, deep: bool = False, classifier: str = "llm") -> tuple[bool, str]:
     """Spawn a daemon thread that runs the sync to completion.
 
-    Returns (started, message). started=False means a sync is already running
-    for this profile; the existing one continues.
+    `classifier`: "llm" (Claude — paid, accurate) or "keyword" (regex — free,
+    catches common patterns). Returns (started, message).
     """
+    if classifier not in ("llm", "keyword"):
+        return False, f"Unknown classifier: {classifier}"
     with _thread_registry_lock:
         existing = _active_threads.get(profile_name)
         if existing is not None and existing.is_alive():
@@ -256,6 +258,7 @@ def start_background_sync(profile_name: str, deep: bool = False) -> tuple[bool, 
             profile_name,
             state="running",
             deep=deep,
+            classifier=classifier,
             started_at=datetime.now(timezone.utc).isoformat(),
             completed_at=None,
             messages_seen=0,
@@ -268,7 +271,7 @@ def start_background_sync(profile_name: str, deep: bool = False) -> tuple[bool, 
         )
         t = threading.Thread(
             target=_sync_worker,
-            args=(profile_name, deep),
+            args=(profile_name, deep, classifier),
             daemon=True,
             name=f"inbox-sync-{profile_name}",
         )
@@ -277,11 +280,11 @@ def start_background_sync(profile_name: str, deep: bool = False) -> tuple[bool, 
     return True, "Sync started."
 
 
-def _sync_worker(profile_name: str, deep: bool) -> None:
+def _sync_worker(profile_name: str, deep: bool, classifier: str = "llm") -> None:
     """Outer wrapper for the background thread — runs the pipeline, traps errors,
     normalizes terminal state (idle / cancelled / error)."""
     try:
-        _run_sync_streaming(profile_name, deep)
+        _run_sync_streaming(profile_name, deep, classifier)
         # Pipeline returned cleanly — check if it was a cancel-induced exit.
         final = _read_status_raw(profile_name)
         if final.get("cancel_requested"):
@@ -310,7 +313,19 @@ def _sync_worker(profile_name: str, deep: bool) -> None:
         print(f"[inbox] sync worker crashed: {e}")
 
 
-def _run_sync_streaming(profile_name: str, deep: bool) -> None:
+def _classify_chunk(chunk: list[dict], classifier: str, profile_name: str) -> list[dict]:
+    """Dispatch to the requested classifier. Same return shape regardless."""
+    if classifier == "keyword":
+        from src.discovery import _load_companies
+        try:
+            known = _load_companies(profile_name)
+        except Exception:
+            known = []
+        return keyword_classify.classify_messages(chunk, known)
+    return classify.classify_messages(chunk)
+
+
+def _run_sync_streaming(profile_name: str, deep: bool, classifier: str = "llm") -> None:
     """The actual pipeline. Writes proposals incrementally; updates sync_status."""
     creds = auth.load_credentials(profile_name)
     if not creds:
@@ -352,8 +367,9 @@ def _run_sync_streaming(profile_name: str, deep: bool) -> None:
         return
 
     fetch.populate_bodies(creds, survivors)
-    print(f"[inbox] bodies fetched; classifying in chunks of {CLASSIFY_CHUNK_SIZE}…")
-    _write_sync_status(profile_name, message="Classifying with Claude…")
+    classifier_label = "Claude" if classifier == "llm" else "keyword patterns"
+    print(f"[inbox] bodies fetched; classifying in chunks of {CLASSIFY_CHUNK_SIZE} ({classifier_label})…")
+    _write_sync_status(profile_name, message=f"Classifying with {classifier_label}…")
 
     classified_total = 0
     new_proposals_total = 0
@@ -367,7 +383,7 @@ def _run_sync_streaming(profile_name: str, deep: bool) -> None:
             print(f"[inbox] cancel requested at {classified_total}/{len(survivors)} classified")
             break
 
-        chunk_classified = classify.classify_messages(chunk)
+        chunk_classified = _classify_chunk(chunk, classifier, profile_name)
         chunk_new = _propose_for_chunk(profile_name, chunk, chunk_classified)
 
         if chunk_new:
