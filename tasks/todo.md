@@ -136,7 +136,7 @@
 
 ## Phase 15: Local FastAPI Dashboard
 - [x] FastAPI skeleton with sidebar layout, profile switcher, and design tokens (`src/ui/`)
-- [x] Editorial-mono design system (Fraunces + Inter, off-white canvas, hairline rules, forest accent) — no DaisyUI/Flowbite/generic Tailwind
+- [x] Initial design system shipped — has since iterated through several aesthetic passes (see Phase 22 for current dark theme)
 - [x] Dashboard page with metrics and 10s HTMX polling (`/_metrics`)
 - [x] Applications kanban with 6 columns (applied / screen / technical / onsite / offer / rejected)
 - [x] Drag-and-drop between columns via Sortable.js — optimistic UI with PATCH on drop
