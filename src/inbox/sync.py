@@ -472,7 +472,9 @@ def _propose_for_chunk(profile_name: str, chunk: list[dict], classified: list[di
             continue
         if msg["id"] in existing_ids:
             continue
-        match = matcher.match_application(c, applications, thread_id=msg.get("thread_id", ""))
+        match = matcher.match_application(
+            c, applications, thread_id=msg.get("thread_id", ""), msg=msg,
+        )
         # When the first email seen for a job is already a follow-up (interview
         # invite, rejection, offer) — i.e. you applied externally and skipped
         # the ATS confirmation step — there's no entry to anchor to. Instead of
