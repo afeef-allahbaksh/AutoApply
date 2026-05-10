@@ -473,8 +473,17 @@ def _propose_for_chunk(profile_name: str, chunk: list[dict], classified: list[di
         if msg["id"] in existing_ids:
             continue
         match = matcher.match_application(c, applications, thread_id=msg.get("thread_id", ""))
+        # When the first email seen for a job is already a follow-up (interview
+        # invite, rejection, offer) — i.e. you applied externally and skipped
+        # the ATS confirmation step — there's no entry to anchor to. Instead of
+        # silently dropping, surface it as "create a new entry at this status"
+        # so the user can decide. They can dismiss if it's not relevant.
         if c["action_type"] == "status_update" and match["resolution"] == "no_match":
-            continue
+            # Skip only if we don't have enough company info to make a useful
+            # placeholder entry — otherwise upgrade to new_application.
+            if not c.get("company"):
+                continue
+            c = {**c, "action_type": "new_application"}
         out.append(_build_proposal(msg, c, match))
         existing_ids.add(msg["id"])
     return out
