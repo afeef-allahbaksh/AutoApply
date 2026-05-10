@@ -1,213 +1,168 @@
 # AutoApply
 
-A fully automated job application pipeline that discovers relevant job postings, tailors your resume per role, and submits applications through ATS platforms — all from the command line.
+Apply to dozens of jobs in the time it takes to apply to one — without the slop. AutoApply discovers open roles at companies you care about, scores each one against your resume, tailors the resume per job, fills out the application, and tracks your interview pipeline on a local dashboard.
 
-## How It Works
+You stay in control: every submission can pause for your review, every inbox-driven status change goes through a manual approve/dismiss queue, and your personal data lives only on your machine.
 
-```
-Profile -> Discover Companies -> Find Open Roles -> Score Fit -> Select Projects -> Optimize Resume -> Apply -> Log
-```
-
-1. **Company Discovery** — Validates company slugs against Greenhouse and Lever public APIs in parallel, builds a targetable registry
-2. **Job Discovery** — Queries each company's job board in parallel, filters by LLM-expanded role keywords and location preferences, scores by relevance, deduplicates against application history
-3. **Job Fit Scoring** — Batched LLM call scores each job 1-5 against your resume. Low-fit jobs are flagged, and you can skip them in pipeline mode
-4. **Project Selection** — If your resume has a project pool, Claude picks the most relevant projects for each specific role (batched for multi-job runs, maintains your one-page format)
-5. **Resume Optimization** — Extracts 10-15 keywords from the JD, then tailors bullet points to incorporate them. ATS-safe Unicode normalization ensures parsers can read your resume. Results are cached to skip redundant API calls on re-runs
-6. **Auto-Apply** — Playwright navigates to each application page, fills standard fields (including React Select comboboxes), uploads your tailored resume, answers custom questions using canned responses or Claude API, pauses for review or auto-submits
-7. **History & Logging** — Every application is logged with status, fit scores, screenshots, and deduplication
-
-## Architecture
+## How it works
 
 ```
-main.py                         # CLI entry point (setup, run, individual commands)
-src/
-  api.py                        # Shared Anthropic client singleton + retry logic
-  setup.py                      # Interactive profile creation (with project pool)
-  pipeline.py                   # Full pipeline orchestrator
-  role_expander.py              # LLM-powered role keyword expansion
-  profile_loader.py             # Profile loading + validation
-  schemas.py                    # JSON schema validators
-  discovery.py                  # Company discovery (parallelized, Greenhouse/Lever API)
-  job_discovery.py              # Job fetching, filtering, fit scoring, dedup (parallelized)
-  resume_parser.py              # PDF -> structured JSON via Claude API
-  resume_optimizer.py           # Resume tailoring, keyword extraction, project selection, caching
-  resume_renderer.py            # JSON -> PDF via WeasyPrint (ATS-safe Unicode normalization)
-  resume_diff.py                # Human-readable resume change diffs (with project selection reasoning)
-  cover_letter.py               # Cover letter generation
-  browser.py                    # Playwright browser management
-  ats_greenhouse.py             # Greenhouse form handler (React Select + standard inputs)
-  ats_lever.py                  # Lever form handler
-  applicant.py                  # Application submission orchestrator
-config/
-  *_schema.json                 # JSON schemas (profile, resume with project_pool, etc.)
-  seed_companies.json           # Verified company slugs (Greenhouse/Lever)
-  example_profile/              # Template profile with fake data
-  resume_template/resume.css    # PDF rendering stylesheet
-profiles/                       # User data (gitignored)
+Profile → Discover Companies → Find Open Roles → Score Fit → Select Projects
+       → Optimize Resume → Apply → Log → Track on Kanban
 ```
 
-## Multi-User Profiles
-
-Each user gets an isolated directory under `profiles/` containing all personal data. The `profiles/` directory is gitignored — nothing personal ever touches GitHub.
-
-```
-profiles/
-  yourname/
-    profile.json          # Personal info, job preferences, settings
-    resume.json           # Structured resume (with optional project_pool)
-    responses.json        # Canned answers to common ATS questions
-    companies.json        # Discovered companies
-    jobs.json             # Current matching job listings
-    applications.json     # Full application history
-    resumes/              # Tailored PDFs (named {name}_{company}.pdf)
-    screenshots/          # Form screenshots for review
-    progress/             # Saved state for failed applications (retry support)
-```
+1. **You import your resume once** (PDF → structured JSON via Claude).
+2. **AutoApply finds matching roles** at companies on Greenhouse / Lever using each company's public job board API.
+3. **Every job gets a 1-5 fit score** before you spend any time on it. Low-fit jobs are flagged so you can skip them.
+4. **Each application gets a tailored resume** — keywords from the JD woven into your bullets, projects swapped in from your project pool, exported as a clean one-page PDF.
+5. **Playwright submits the application** for you. Default is "fill it out, pause, let you review" — you click Submit. Set `auto_submit: true` once you trust it.
+6. **A local dashboard** tracks everything as a kanban board (`applied → screen → technical → onsite → offer / rejected`) with drag-and-drop between columns.
+7. **Optionally**: connect your email so the dashboard auto-detects interview invites, rejections, and offers from your inbox and proposes status updates for you to approve.
 
 ## Quick Start
 
 ```bash
-# Install Python dependencies
+# Install
 pip install -r requirements.txt
 python -m playwright install chromium
 
-# System dependency (required for PDF rendering)
+# System dependency for PDF rendering
 # macOS:
 brew install pango
 # Ubuntu/Debian:
 sudo apt install libpango-1.0-0 libpangocairo-1.0-0
-# Windows:
-# Install GTK3 runtime from https://github.com/nickvdp/weasyprint-windows
-# or use: choco install gtk-runtime
 
-# Set your API key
+# Set your Anthropic API key
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 
-# Interactive setup — creates your profile, imports your resume, builds project pool
+# Interactive setup — creates your profile, imports your resume
 python main.py setup
 
 # Run the full pipeline
 python main.py --profile yourname run
 ```
 
-## Individual Commands
+## Commands
 
 ```bash
-# Pipeline
-python main.py --profile yourname run             # Run the full pipeline
-python main.py --profile yourname status          # View profile summary
+# Run the whole pipeline end-to-end
+python main.py --profile yourname run
 
-# Discovery
-python main.py --profile yourname discover        # Discover companies from seed list
-python main.py --profile yourname add-company     # Add a company by slug (auto-detects ATS)
-python main.py --profile yourname discover-jobs   # Find matching jobs
-
-# Resume
-python main.py --profile yourname import-resume                     # Parse resume PDF (prompts for path)
-python main.py --profile yourname import-resume --pdf resume.pdf    # Parse resume PDF (direct)
-python main.py --profile yourname add-projects                      # Add projects from another resume (prompts)
-python main.py --profile yourname add-projects --pdf other.pdf      # Add projects from another resume (direct)
-python main.py --profile yourname optimize --job 0                  # Tailor resume for job
-
-# Application
-python main.py --profile yourname apply --job 0                     # Apply to a specific job
-python main.py --profile yourname apply                             # Apply to all matched jobs
-python main.py --profile yourname apply --dry-run                   # Fill forms without submitting
-python main.py --profile yourname apply --headless                  # Run browser in headless mode
-python main.py --profile yourname history                           # View application history
+# Or run individual stages
+python main.py --profile yourname discover         # Find companies
+python main.py --profile yourname discover-jobs    # Find matching jobs
+python main.py --profile yourname optimize --job 0 # Tailor resume for one job
+python main.py --profile yourname apply --job 0    # Apply to one job
+python main.py --profile yourname apply --dry-run  # Fill forms without submitting
 
 # Profile management
-python main.py --profile yourname update-settings     # Toggle auto_submit, change rate limit
-python main.py --profile yourname update-preferences  # Change target roles, locations, salary
-python main.py --profile yourname update-responses    # Update canned ATS answers (EEO, visa, etc.)
+python main.py --profile yourname status               # Profile summary
+python main.py --profile yourname history              # Application history
+python main.py --profile yourname add-company          # Add a company by slug
+python main.py --profile yourname update-preferences   # Change target roles/locations/salary
+python main.py --profile yourname update-responses     # Update EEO answers, visa, etc.
+python main.py --profile yourname update-settings      # Toggle auto_submit, change rate limit
+
+# Resume
+python main.py --profile yourname import-resume        # Parse a PDF resume
+python main.py --profile yourname add-projects         # Add projects from another resume
+
+# Local dashboard (port 8000 by default)
+python main.py --profile yourname ui
+python main.py --profile yourname ui --port 8765
 ```
 
-## Resume Optimization
+All commands prompt interactively for missing inputs — no manual JSON editing.
 
-Resumes are stored as structured JSON — not as PDFs. This makes them programmatically editable and diffable. The optimizer:
+## Dashboard
 
-- **Extracts 10-15 keywords** from the job description before optimizing
-- **Selects the best projects** from your project pool for each specific role (batched for multi-job runs)
-- Rewrites bullet points to incorporate extracted JD keywords naturally
-- Reorders skills to surface the most relevant ones first
-- Adds plausible skills from the JD that the candidate likely has
-- Preserves all metrics, company names, dates, and factual claims
-- **ATS-safe normalization** — replaces smart quotes, em dashes, and invisible Unicode with plain ASCII
-- Shows a diff of every change before saving (including project selection reasoning)
-- **Caches results** — re-running optimize on the same resume+JD combo skips the API call
-- Renders a clean PDF per application via an HTML/CSS template
+`python main.py --profile yourname ui` launches a local FastAPI dashboard at `http://127.0.0.1:8000`. It's read-only on your data files (mutations go through validated routes) and bound to localhost — single-user, no auth.
 
-The resume schema is fully dynamic — different users can have different section layouts (`skills -> experience -> projects -> education` vs `summary -> experience -> education -> skills`), and `section_order` controls what renders and in what order.
+What you'll see:
 
-### Project Pool
+- **Dashboard** — totals at a glance: applied / in pipeline / offers / rejections / response rate, plus your last 10 status changes.
+- **Jobs** — a filterable view of `jobs.json` with fit scores. Each row has a Track button that creates a manual application entry from the job.
+- **Applications** — a 6-column kanban board you drag cards across to update status. Manual add, inline edit, delete. If you've connected your inbox, proposed changes from new email show up in a review queue above the board.
+- **Companies** — list and add by slug (greenhouse/lever auto-detect).
+- **Settings** — edit your profile, EEO responses, and the IMAP inbox connection.
 
-If you have multiple versions of your resume with different projects, you can build a project pool:
+The dashboard never submits applications — applying still happens via the CLI `apply` command in your terminal. The dashboard is a *tracker*, not a submitter.
 
-```bash
-# During setup — prompted automatically after resume import
-python main.py setup
+## Inbox sync (optional)
 
-# During import-resume — prompted after parsing your main resume
-python main.py --profile yourname import-resume
+If you want the dashboard to notice when companies email you about interview invites, rejections, or offers, connect an IMAP-supporting inbox in Settings:
 
-# Or add projects from another resume anytime (prompts for path if --pdf omitted)
-python main.py --profile yourname add-projects
-python main.py --profile yourname add-projects --pdf other_resume.pdf
-```
+1. **Gmail**: enable 2FA, generate an app password at <https://myaccount.google.com/apppasswords>, paste it into the dashboard's Settings → Inbox sync (IMAP) card. Server / port default to `imap.gmail.com:993`.
+2. **Other providers**: any IMAPS host works — Outlook, ProtonMail Bridge (`127.0.0.1:1143`), university mailboxes. Enter the server explicitly.
+3. Click **Connect**. AutoApply does a real login + logout to verify; bad credentials are refused.
 
-The optimizer picks the N most relevant projects per job (where N = number of projects in your base resume), keeping your resume at one page. The diff view shows which projects were selected or skipped, with a one-sentence reason for each decision.
+After connecting, hit **Sync inbox** on the Applications page. The button kicks off a background scan and proposals stream into a review queue as the classifier finishes them. You decide what to apply.
 
-## ATS Support
+**Toggles** next to the button:
+
+- **Full history** — look back 5 years on first sync. Use it once to backfill; default incremental syncs cover what's new since the last run.
+- **Free mode** — use a local regex classifier instead of the Claude API. Zero cost but lower recall — catches the obvious patterns ("thank you for applying", "phone screen", "unfortunately", etc.) and misses recruiter cold outreach with vague subjects. Useful when you're out of API credits.
+
+Every email-driven change passes through the review queue. Nothing happens silently.
+
+**Note on app passwords**: app password access is full-mailbox (read + send + delete), not the read-only OAuth scope you'd get if AutoApply went through a Google Cloud project. AutoApply only reads. Trade is ~2 minutes of setup vs. 1-3 months of Google Cloud verification.
+
+## Resume optimization
+
+Your resume lives as structured JSON (`profiles/yourname/resume.json`), not a PDF, so it can be edited and diffed programmatically. For each application, the optimizer:
+
+- Picks the best projects from your project pool for that JD
+- Extracts keywords from the JD and weaves them into your bullets
+- Normalizes smart quotes / em-dashes / zero-width characters so ATS parsers don't choke
+- Renders a one-page PDF via WeasyPrint
+- Caches the result by `sha256(resume + JD)` — re-running on the same job is free
+
+The optimizer prints a diff of every change before saving so you can see what changed and why.
+
+## ATS support
 
 | Feature | Greenhouse | Lever |
-|---------|-----------|-------|
-| Job discovery | `boards-api.greenhouse.io` | `api.lever.co` |
-| Form filling | First/last name, email, phone, LinkedIn, location | Full name, email, phone, LinkedIn, GitHub |
-| Resume upload | PDF file input | PDF file input |
-| Custom questions | Canned responses + Claude API fallback | Canned responses + Claude API fallback |
-| Cover letter | Auto-generated if form requires it | Filled in "Additional info" field |
-| CAPTCHA handling | Pauses for manual solve | Pauses for manual solve |
+|---|---|---|
+| Job discovery | ✓ | ✓ |
+| Form filling | ✓ (incl. React Select dropdowns, date pickers) | ✓ |
+| Resume upload | ✓ | ✓ |
+| Custom questions | Canned responses + Claude fallback | Canned responses + Claude fallback |
+| Cover letter | Auto-generated when required | ✓ |
+| CAPTCHA | Pauses for manual solve | Pauses for manual solve |
 
-## Application Flow
+Ashby, Workday, and other ATSes are planned but not in this version.
+
+## Application flow
 
 With `auto_submit: false` (default):
-1. Playwright opens a visible browser
-2. Navigates to the application page
-3. Fills all fields and uploads your tailored resume
-4. Takes a screenshot for your records
-5. Pauses and asks: `Submit? (y/n/q)`
-6. Logs the result (with fit score) to `applications.json`
+1. Playwright opens a visible browser.
+2. Fills your tailored resume into the form.
+3. Takes a screenshot for your records.
+4. Pauses and asks: `Submit? (y/n/q)`.
+5. Logs to `applications.json` with full status tracking.
 
-With `auto_submit: true`:
-- Same flow but submits automatically and moves to the next job
-- Rate-limited with configurable delay + randomized jitter
+With `auto_submit: true`: same flow, no pause. Rate-limited between submissions to avoid looking like a bot.
 
-With `--dry-run`:
-- Fills forms and takes screenshots but never submits
-- Does not log to `applications.json` — safe for testing new companies
+With `--dry-run`: fills forms, takes screenshots, never submits, never logs. Great for testing on a new company before trusting it.
 
 ## Cost
 
-Designed to minimize API spend — LLM calls only happen where they add real value.
+AutoApply uses the Claude API for the bits where smart language matters — resume tailoring, custom-question answers, fit scoring, inbox classification. Public APIs (Greenhouse, Lever) and your local IMAP server are free.
 
-| Action | Cost | When |
-|--------|------|------|
-| Setup (profile creation) | $0 | Interactive CLI prompts |
-| Role keyword expansion | ~$0.005 | One-time during setup |
-| Resume import (PDF parse) | ~$0.01 | One-time per resume |
-| Company/job discovery | $0 | Public APIs, no auth |
-| Job fit scoring | ~$0.01/batch | One call per discover-jobs run |
-| Project selection | ~$0.005/job (single) or ~$0.01/batch | Batched in pipeline/apply, single for optimize |
-| Resume optimization | ~$0.02/job | Per application (cached — free on re-run) |
-| Custom question answering | ~$0.005/question | Only when no canned response matches |
-| Cover letter generation | ~$0.01/letter | Only when form requires it |
+A rough estimate for applying to 10 jobs end-to-end: **$0.25 – $0.40 in Claude tokens**. Inbox sync of a year's email runs in single-digit cents. If you're out of credits, the dashboard's **Free mode** keeps inbox sync working with a regex-based classifier.
 
-Applying to 10 jobs with fit scoring + resume optimization costs roughly $0.25-0.40 total.
+Set `ANTHROPIC_API_KEY` in `.env` once and you're done.
 
-## Tech Stack
+## Tech stack
 
-- **Python** — core language
-- **Claude API** (Anthropic) — resume optimization, PDF parsing, custom question answering, cover letter generation
-- **Playwright** — browser automation for form filling
-- **WeasyPrint** — HTML/CSS to PDF rendering
-- **Greenhouse & Lever APIs** — job discovery (public, no auth)
+- **Python** + **Claude API** (Anthropic) for the language-heavy work
+- **Playwright** for form submission
+- **WeasyPrint** for PDF rendering
+- **FastAPI + HTMX + Sortable.js** for the dashboard
+- **IMAP** (stdlib `imaplib`) for read-only inbox access
+
+Implementation details (matcher algorithms, sync pipeline, rate limiting) live in [CLAUDE.md](./CLAUDE.md) if you want to dig into the architecture.
+
+## Your data
+
+Everything personal lives under `profiles/yourname/` and is gitignored. Nothing leaves your machine except API calls to Anthropic (resume tailoring, classification) and read calls to Greenhouse / Lever / your IMAP server.

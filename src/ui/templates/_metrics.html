@@ -1,0 +1,58 @@
+<section class="stat-grid">
+  <div class="stat-cell">
+    <div class="label">Total applied</div>
+    <div class="stat-number">{{ metrics.total_applied }}</div>
+  </div>
+  <div class="stat-cell">
+    <div class="label">In pipeline</div>
+    <div class="stat-number">{{ metrics.in_pipeline }}</div>
+  </div>
+  <div class="stat-cell">
+    <div class="label">Offers</div>
+    <div class="stat-number" style="color: var(--accent);">{{ metrics.offers }}</div>
+  </div>
+  <div class="stat-cell">
+    <div class="label">Rejections</div>
+    <div class="stat-number" style="color: var(--status-danger);">{{ metrics.rejections }}</div>
+  </div>
+  <div class="stat-cell">
+    <div class="label">Response rate</div>
+    <div class="stat-number">{{ "%.1f"|format(metrics.response_rate) }}<span class="unit">%</span></div>
+    <div class="helper">{{ metrics.responses_count }} of {{ metrics.total_applied }} got a response</div>
+  </div>
+</section>
+
+<section style="margin-top: 2.5rem;">
+  <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1rem;">
+    <h2 style="font-size: 22px; margin: 0;">Recent activity</h2>
+    <span class="section-label">last 10 by status update</span>
+  </div>
+  {% if metrics.recent %}
+    <div class="card flush" style="overflow: hidden;">
+      <table class="app-table">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Company</th>
+            <th>Role</th>
+            <th>Updated</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in metrics.recent %}
+            <tr>
+              <td><span class="badge {{ status_badge_class.get(a.get('status'), 'badge-neutral') }}">{{ a.get('status', '—') }}</span></td>
+              <td style="font-weight: 500;">{{ a.get('company', '—') }}</td>
+              <td style="color: var(--ink-muted);">{{ a.get('role', '—') }}</td>
+              <td><span class="mono">{{ a.get('status_updated_at') or a.get('date', '—') }}</span></td>
+              <td><span class="badge badge-neutral">{{ a.get('source', 'autoapply') }}</span></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p style="color: var(--ink-muted); padding: 1rem 0;">No activity yet — apply to a job in the CLI or use the Jobs page to track an outside application.</p>
+  {% endif %}
+</section>

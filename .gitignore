@@ -25,3 +25,6 @@ browser_data/
 # OS
 .DS_Store
 Thumbs.db
+
+# Stray resume PDFs at the repo root (real ones live under profiles/{name}/)
+/*.pdf

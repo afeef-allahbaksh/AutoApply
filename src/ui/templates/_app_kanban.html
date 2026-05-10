@@ -1,0 +1,42 @@
+<div id="kanban-grid">
+  <div class="kanban-board">
+    {% for col in kanban_columns %}
+      <section class="kanban-col {% if col == 'rejected' %}kanban-col-rejected{% elif col == 'offer' %}kanban-col-offer{% endif %}" data-status="{{ col }}">
+        <header class="kanban-col-head">
+          <h2 class="kanban-col-title">{{ column_headers[col] }}</h2>
+          <span class="kanban-col-count" data-count>{{ columns[col] | length }}</span>
+        </header>
+        <div class="kanban-col-body" data-status="{{ col }}">
+          {% if columns[col] %}
+            {% for row in columns[col] %}
+              {% include "_app_card.html" %}
+            {% endfor %}
+          {% endif %}
+          <div class="kanban-col-placeholder">drop here</div>
+        </div>
+      </section>
+    {% endfor %}
+  </div>
+
+  {% if closed %}
+    <details class="kanban-closed" {% if closed | length < 3 %}open{% endif %}>
+      <summary>
+        <span class="section-label">Other / closed</span>
+        <span class="kanban-col-count">{{ closed | length }}</span>
+      </summary>
+      <div class="kanban-closed-body">
+        {% for row in closed %}
+          {% include "_app_card.html" %}
+        {% endfor %}
+      </div>
+    </details>
+  {% endif %}
+</div>
+
+<script>
+(function() {
+  if (window.__autoapplyKanbanInit) {
+    window.__autoapplyKanbanInit();
+  }
+})();
+</script>

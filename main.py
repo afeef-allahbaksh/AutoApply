@@ -27,7 +27,7 @@ def main():
         "command",
         nargs="?",
         default="status",
-        choices=["setup", "status", "discover", "discover-jobs", "import-resume", "add-projects", "add-company", "update-settings", "update-responses", "update-preferences", "optimize", "apply", "run", "history"],
+        choices=["setup", "status", "discover", "discover-jobs", "import-resume", "add-projects", "add-company", "update-settings", "update-responses", "update-preferences", "optimize", "apply", "run", "history", "ui"],
         help="Command to run (default: status)",
     )
     parser.add_argument(
@@ -42,6 +42,10 @@ def main():
     parser.add_argument(
         "--dry-run", action="store_true", dest="dry_run",
         help="Fill forms and screenshot but never submit (for apply)",
+    )
+    parser.add_argument(
+        "--port", type=int, default=8000,
+        help="Port for the dashboard UI (default: 8000)",
     )
 
     args = parser.parse_args()
@@ -120,27 +124,29 @@ def main():
         base_projects = resume_data.get("projects", [])
         if base_projects:
             print(f"\nYour resume has {len(base_projects)} project(s): {', '.join(p['name'] for p in base_projects)}")
-            add_more = input("  Add projects from another resume PDF? [y/N]: ").strip().lower()
+            print(f"  You can add projects from other resume versions so the optimizer")
+            print(f"  picks the best ones per job (final resume still uses {len(base_projects)}).\n")
             all_projects = list(base_projects)
             seen_names = {p["name"].lower() for p in all_projects}
 
-            while add_more in ("y", "yes"):
-                extra_pdf = input("  Path to resume PDF: ").strip().strip("'\"")
-                if not extra_pdf or not Path(extra_pdf).exists():
+            while True:
+                response = input("  Add projects from another resume PDF? (path or N to skip): ").strip().strip("'\"")
+                if not response or response.lower() in ("n", "no", "done", "skip"):
+                    break
+                extra_pdf = response
+                if not Path(extra_pdf).exists():
                     print(f"    File not found: {extra_pdf}")
-                else:
-                    print("    Parsing...")
-                    try:
-                        extra_resume = parse_pdf_to_resume(extra_pdf)
-                        for p in extra_resume.get("projects", []):
-                            if p["name"].lower() not in seen_names:
-                                all_projects.append(p)
-                                seen_names.add(p["name"].lower())
-                                print(f"    + {p['name']}")
-                    except Exception as e:
-                        print(f"    Error parsing: {e}")
-
-                add_more = input("  Add projects from another resume PDF? [y/N]: ").strip().lower()
+                    continue
+                print("    Parsing...")
+                try:
+                    extra_resume = parse_pdf_to_resume(extra_pdf)
+                    for p in extra_resume.get("projects", []):
+                        if p["name"].lower() not in seen_names:
+                            all_projects.append(p)
+                            seen_names.add(p["name"].lower())
+                            print(f"    + {p['name']}")
+                except Exception as e:
+                    print(f"    Error parsing: {e}")
 
             if len(all_projects) > len(base_projects):
                 resume_data["project_pool"] = all_projects
@@ -404,10 +410,14 @@ def main():
 
             # Save
             opt_hash = _optimization_hash(tailored_base, job_content)
-            paths = save_tailored_resume(args.profile, optimized, job["company"], job["title"], optimization_hash=opt_hash)
-            print(f"\nSaved tailored resume:")
-            print(f"  JSON: {paths['json']}")
-            print(f"  PDF:  {paths['pdf']}")
+            try:
+                paths = save_tailored_resume(args.profile, optimized, job["company"], job["title"], optimization_hash=opt_hash)
+                print(f"\nSaved tailored resume:")
+                print(f"  JSON: {paths['json']}")
+                print(f"  PDF:  {paths['pdf']}")
+            except Exception as e:
+                print(f"\nError: Could not save tailored resume: {e}", file=sys.stderr)
+                sys.exit(1)
     elif args.command == "apply":
         from src.applicant import apply_to_jobs
 
@@ -461,6 +471,15 @@ def main():
     elif args.command == "run":
         from src.pipeline import run_pipeline
         run_pipeline(profile, headless=args.headless)
+
+    elif args.command == "ui":
+        import os
+        import uvicorn
+        from src.ui.app import app
+        os.environ["AUTOAPPLY_PROFILE"] = args.profile
+        print(f"\nDashboard at http://127.0.0.1:{args.port}/  (profile: {args.profile})")
+        print("Bound to localhost only — no auth. Ctrl-C to stop.\n")
+        uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")
 
     elif args.command == "history":
         if not profile.applications:

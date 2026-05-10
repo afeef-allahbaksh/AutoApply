@@ -14,7 +14,6 @@ URLS = 'input[name="urls"]'
 LINKEDIN_URL = 'input[name="urls[LinkedIn]"], input[placeholder*="LinkedIn" i]'
 GITHUB_URL = 'input[name="urls[GitHub]"], input[placeholder*="GitHub" i]'
 RESUME_UPLOAD = 'input[type="file"][name="resume"]'
-RESUME_BUTTON = 'button:has-text("Attach"), button:has-text("Upload"), label:has-text("Attach"), label:has-text("Upload resume")'
 COMMENTS = 'textarea[name="comments"]'
 SUBMIT_BUTTON = 'button:has-text("Submit")'
 
@@ -233,17 +232,8 @@ def fill_lever_application(
             if value and _fill_if_exists(page, selector, value):
                 result["fields_filled"].append(name)
 
-        # Upload resume — click upload button first if needed, then set file
+        # Upload resume — set_input_files works on hidden inputs without clicking
         if resume_path and Path(resume_path).exists():
-            uploaded = False
-            try:
-                upload_btn = page.locator(RESUME_BUTTON)
-                if upload_btn.count() > 0:
-                    upload_btn.first.click()
-                    time.sleep(1)
-            except Exception:
-                pass
-
             resume_selectors = [
                 RESUME_UPLOAD,
                 'input[type="file"][id*="resume" i]',
@@ -252,17 +242,7 @@ def fill_lever_application(
             for sel in resume_selectors:
                 if _upload_if_exists(page, sel, resume_path):
                     result["fields_filled"].append("resume")
-                    uploaded = True
                     break
-
-            if not uploaded:
-                try:
-                    file_inputs = page.locator('input[type="file"]')
-                    if file_inputs.count() > 0:
-                        file_inputs.first.set_input_files(resume_path)
-                        result["fields_filled"].append("resume")
-                except Exception:
-                    pass
 
         # Cover letter — only fill the comments field if it looks like a cover letter
         # or "additional information" field, not a generic "how did you hear about us" textarea

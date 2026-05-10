@@ -1,0 +1,66 @@
+<div id="applications-content"
+  {% if sync_running %}hx-get="/email/sync_status" hx-trigger="every 4s" hx-swap="outerHTML"{% endif %}>
+
+  {% if sync_running %}
+    <div class="sync-banner sync-banner-running">
+      <span class="spinner"></span>
+      <span>{{ sync_status.message or 'Syncing inbox…' }}</span>
+      {% if sync_status.after_prefilter %}
+        <span class="sync-progress">
+          {{ sync_status.classified or 0 }} / {{ sync_status.after_prefilter }} classified ·
+          {{ sync_status.new_proposals or 0 }} proposals so far
+        </span>
+      {% endif %}
+      <form hx-post="/email/sync_cancel"
+            hx-target="#applications-content"
+            hx-swap="outerHTML"
+            style="margin-left: auto;">
+        <button type="submit" class="btn-ghost btn-sm"
+                {% if sync_status.cancel_requested %}disabled{% endif %}>
+          {{ 'Cancelling…' if sync_status.cancel_requested else 'Cancel' }}
+        </button>
+      </form>
+    </div>
+  {% elif sync_status and sync_status.state == 'error' %}
+    <div class="sync-banner sync-banner-error">Sync failed: {{ sync_status.error }}</div>
+  {% elif sync_status and sync_status.state == 'interrupted' %}
+    <div class="sync-banner sync-banner-warning">{{ sync_status.message }}</div>
+  {% elif sync_status and sync_status.state == 'cancelled' %}
+    <div class="sync-banner sync-banner-warning">{{ sync_status.message or 'Sync cancelled.' }}</div>
+  {% endif %}
+
+  {% include "_email_proposals.html" %}
+  {% include "_app_kanban.html" %}
+</div>
+
+<style>
+  .sync-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.625rem 1rem;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-md);
+    margin-bottom: 1rem;
+    background: var(--canvas-raised);
+    font-size: 12.5px;
+  }
+  .sync-banner-running { color: var(--ink); }
+  .sync-banner-running .sync-progress {
+    color: var(--ink-muted);
+    margin-left: auto;
+    font-feature-settings: 'tnum';
+  }
+  .sync-banner-running form { margin-left: auto; }
+  .sync-banner-running .sync-progress + form { margin-left: 0; }
+  .sync-banner-error {
+    color: var(--status-danger);
+    background: var(--status-danger-bg);
+    border-color: rgba(122, 26, 26, 0.2);
+  }
+  .sync-banner-warning {
+    color: var(--status-warning);
+    background: var(--status-warning-bg);
+    border-color: rgba(122, 88, 8, 0.2);
+  }
+</style>

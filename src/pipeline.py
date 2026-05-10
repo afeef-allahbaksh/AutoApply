@@ -7,7 +7,7 @@ from src.profile_loader import Profile
 from src.resume_diff import diff_resumes
 from src.resume_optimizer import (
     batch_select_projects, find_cached_resume, optimize_resume,
-    _optimization_hash, save_tailored_resume, select_projects,
+    _optimization_hash, save_tailored_resume,
 )
 from src.schemas import validate_resume
 
@@ -18,13 +18,19 @@ def run_pipeline(profile: Profile, headless: bool = False) -> None:
 
     # Step 1: Company discovery
     companies_path = profile.profile_dir / "companies.json"
-    if not companies_path.exists():
+    companies = []
+    if companies_path.exists() and companies_path.stat().st_size > 0:
+        try:
+            with open(companies_path) as f:
+                companies = json.load(f)
+        except json.JSONDecodeError:
+            companies = []
+
+    if not companies:
         print("\n--- Step 1: Discovering companies ---")
         result = discover_companies(profile_name)
         print(f"Done: {result['added']} companies added")
     else:
-        with open(companies_path) as f:
-            companies = json.load(f)
         print(f"\n--- Step 1: {len(companies)} companies already discovered ---")
         refresh = input("  Refresh company list? [y/N]: ").strip().lower()
         if refresh in ("y", "yes"):
@@ -32,8 +38,26 @@ def run_pipeline(profile: Profile, headless: bool = False) -> None:
             print(f"Done: {result['added']} added, {result['skipped']} skipped")
 
     # Step 2: Job discovery
-    print("\n--- Step 2: Finding matching jobs ---")
-    jobs = discover_jobs(profile_name)
+    jobs_path = profile.profile_dir / "jobs.json"
+    cached_jobs = []
+    if jobs_path.exists() and jobs_path.stat().st_size > 0:
+        try:
+            with open(jobs_path) as f:
+                cached_jobs = json.load(f)
+        except json.JSONDecodeError:
+            cached_jobs = []
+
+    if cached_jobs:
+        print(f"\n--- Step 2: {len(cached_jobs)} jobs from previous discovery ---")
+        refresh = input("  Refresh job list? [y/N]: ").strip().lower()
+        if refresh in ("y", "yes"):
+            jobs = discover_jobs(profile_name)
+        else:
+            jobs = cached_jobs
+    else:
+        print("\n--- Step 2: Finding matching jobs ---")
+        jobs = discover_jobs(profile_name)
+
     if not jobs:
         print("No matching jobs found. Try adjusting your role/location preferences.")
         return
@@ -135,8 +159,11 @@ def run_pipeline(profile: Profile, headless: bool = False) -> None:
                 if diff != "No changes.":
                     print(f"\n{diff}")
                 opt_hash = _optimization_hash(tailored_base, job_content)
-                paths = save_tailored_resume(profile_name, optimized, company, role, optimization_hash=opt_hash)
-                print(f"    Saved: {paths['pdf']}")
+                try:
+                    paths = save_tailored_resume(profile_name, optimized, company, role, optimization_hash=opt_hash)
+                    print(f"    Saved: {paths['pdf']}")
+                except Exception as e:
+                    print(f"    Warning: Could not save tailored resume ({e}). Will use base resume.")
         else:
             print(f"    Using base resume (no optimization)")
 

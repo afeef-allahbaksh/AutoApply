@@ -20,6 +20,9 @@
       "type": "string",
       "minLength": 1
     },
+    "zip_code": {
+      "type": "string"
+    },
     "linkedin": {
       "type": "string"
     },

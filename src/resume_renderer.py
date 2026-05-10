@@ -205,7 +205,21 @@ def render_resume_html(resume_data: dict) -> str:
 <body>{contact_html}{"".join(body_sections)}</body></html>"""
 
 
+class ResumeRenderError(Exception):
+    """Raised when PDF rendering fails (WeasyPrint crash, disk full, missing fonts)."""
+
+
 def render_resume_pdf(resume_data: dict, output_path: str) -> None:
-    """Render resume.json to a PDF file."""
-    html_str = render_resume_html(resume_data)
-    HTML(string=html_str).write_pdf(output_path)
+    """Render resume.json to a PDF file.
+
+    Raises ResumeRenderError with context if WeasyPrint fails.
+    """
+    try:
+        html_str = render_resume_html(resume_data)
+    except Exception as e:
+        raise ResumeRenderError(f"HTML generation failed: {e}") from e
+
+    try:
+        HTML(string=html_str).write_pdf(output_path)
+    except Exception as e:
+        raise ResumeRenderError(f"PDF write failed for {output_path}: {e}") from e

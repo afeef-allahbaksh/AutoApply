@@ -134,9 +134,83 @@
 - [x] Fit score column in history command
 - [x] Removed unused imports (os, date from resume_optimizer; Path from job_discovery)
 
+## Phase 15: Local FastAPI Dashboard
+- [x] FastAPI skeleton with sidebar layout, profile switcher, and design tokens (`src/ui/`)
+- [x] Initial design system shipped — has since iterated through several aesthetic passes (see Phase 22 for current dark theme)
+- [x] Dashboard page with metrics and 10s HTMX polling (`/_metrics`)
+- [x] Applications kanban with 6 columns (applied / screen / technical / onsite / offer / rejected)
+- [x] Drag-and-drop between columns via Sortable.js — optimistic UI with PATCH on drop
+- [x] Hover-revealed edit/delete actions on cards; manual add inline form
+- [x] Jobs page with filter form, refresh button, per-row Track button (creates a manual application entry — never submits via Playwright)
+- [x] Companies page with auto-detect ATS add form
+- [x] Settings page editing `profile.json` and `responses.json` with validation, plus optional Claude role expansion
+- [x] Cold email v2 placeholder reserved in sidebar
+- [x] `python main.py --profile {name} ui [--port 8000]` launcher
+
+## Phase 16: Persistent Browser Session
+- [x] `get_browser_context` accepts `storage_state_path` parameter (`src/browser.py`)
+- [x] `apply_to_jobs` saves `profiles/{name}/browser_state.json` on completion so 2FA cookies carry across runs
+
+## Phase 17: Application Status Lifecycle Extension
+- [x] Extend `applications.json` status enum with interview-pipeline values (`screen`, `technical`, `onsite`, `offer`, `rejected`)
+- [x] Add `notes`, `status_updated_at` (re-stamped on every status change), and `source` (`autoapply` | `manual` | `email`) fields
+- [x] Add `email_thread_ids` array linking entries to inbox threads
+- [x] Update every `applications.append({...})` site in `applicant.py` to stamp `status_updated_at` + `source`
+
+## Phase 18: Inbox Integration via IMAP (Read-Only)
+- [x] Per-profile IMAP credential store with login verification on save (`src/inbox/auth.py`)
+- [x] Settings page Inbox card — email + app password + server/port + Connect / Disconnect (replaces earlier OAuth flow for distribution-friendliness)
+- [x] `imaplib`-backed message fetcher with body extraction and Message-ID threading via References / In-Reply-To headers (`src/inbox/fetch.py`)
+- [x] Heuristic prefilter — skip LinkedIn/Indeed/newsletter senders and noise subjects
+- [x] Claude classifier — batched (10/call) classification into `new_application` / `status_update` / `ignore`
+- [x] Application matcher — thread-id pin first, then fuzzy company + role tokens
+- [x] Sync orchestrator with `processed_message_ids` cap (5000) and proposals.json persistence
+- [x] Review queue panel above kanban with Apply / Dismiss / View buttons
+- [x] Apply for `new_application` creates entry with `source="email"` and links thread id
+- [x] Apply for `status_update` moves matched card and appends thread id
+
+## Phase 19: Streaming Sync Pipeline + Performance
+- [x] Background daemon thread per profile for non-blocking sync (`start_background_sync` → spawns worker, returns immediately)
+- [x] UI polls `/email/sync_status` every 4s with auto-stop when state flips to idle
+- [x] Two-phase IMAP fetch — headers via bulk FETCH chunks of 500 (no body cost), bodies only for prefilter survivors via chunks of 50
+- [x] Parallel Claude classification via `ThreadPoolExecutor(max_workers=2)`
+- [x] Sliding-window input-TPM token bucket (`src/api.py:reserve_input_tokens`) — default 45K/min, env override
+- [x] Atomic `sync_status.json` writes via tmp + rename
+- [x] Stuck-state detection — `read_sync_status` surfaces `interrupted` when the file says running but no live worker exists in this process
+- [x] Cooperative cancel button — flag in status file, worker checks at chunk boundaries
+- [x] Body fetch retry with reconnect on IMAP connection drop
+- [x] Switch classifier model from Sonnet to Haiku 4.5 (3× higher TPM ceiling, ~4× cheaper, same accuracy on the binary classification task)
+
+## Phase 20: Free Mode Keyword Classifier
+- [x] `src/inbox/keyword_classify.py` — pure-regex classifier with same return shape as LLM classifier
+- [x] Status detection via priority-ordered patterns (offer > rejected > onsite > technical > screen > applied)
+- [x] ATS sender domain heuristic — `*.greenhouse.io`, `*.lever.co`, etc. tagged as "applied" when no keyword fires
+- [x] Company extraction cascade: known applications → sender domain (skipping ATS relays) → sender display name
+- [x] Role extraction via regex patterns ("for the X position")
+- [x] IMAP server-side keyword filter applied in free mode so non-application mail never downloads
+- [x] UI: "Free mode" checkbox next to Sync inbox button
+
+## Phase 21: Matcher Hardening + Dedup
+- [x] Matcher pulls company candidates from multiple sources: classifier output, sender domain, subject prefix, body scan against existing applications
+- [x] ATS relay stems (`greenhouse`, `lever`, `avature`, `myworkdayjobs`, etc.) excluded from sender-domain matching
+- [x] `status_update + no_match` upgraded to `new_application` so orphan interview emails surface a "create entry" proposal instead of getting dropped
+- [x] `new_application + match/ambiguous` silently skipped — re-confirmations don't create duplicates
+- [x] `status_update + match` skipped when proposed status equals existing (no-op guard for re-syncs)
+
+## Phase 22: UI Iteration to Dark Modern Theme
+- [x] Multiple design passes — editorial mono → vercel-clean → light gray with depth → dark theme
+- [x] Final dark theme: canvas `#0d0e13`, raised `#16171d`, sunken `#07080b`, elevated `#1c1d24`
+- [x] Indigo accent `#818cf8` with violet-shifted wordmark gradient
+- [x] Smooth motion across all interactive elements (cubic-bezier easing, hover lift, drag rotation)
+- [x] Three-tier button hierarchy: `btn-primary` (indigo gradient + glow), `btn-secondary` (indigo-tinted), `btn-ghost` (dark elevated surface)
+- [x] `.btn-sm` modifier for compact inline actions
+- [x] `header-checkbox` class with `accent-color: var(--accent)` so checkboxes match the indigo palette
+
 ## Future (v2+)
 - [ ] Ashby ATS support
 - [ ] Crunchbase API for richer company discovery
-- [ ] React frontend for review UI
 - [ ] Workday support
-- [ ] Analytics dashboard (application stats, response rates)
+- [ ] Cold email composer + tracker (sidebar slot reserved)
+- [ ] Stable application IDs instead of list indices (avoids two-tab drag race)
+- [ ] Background daemon mode for periodic inbox sync without dashboard open
+- [ ] Multi-account inbox (currently single IMAP account per profile)

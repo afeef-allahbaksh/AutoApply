@@ -1,0 +1,25 @@
+<div style="display: flex; align-items: baseline; justify-content: space-between; padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--rule);">
+  <div class="section-label">{{ rows|length }} of {{ total }} jobs match</div>
+</div>
+<table class="app-table">
+  <thead>
+    <tr>
+      <th>Company</th>
+      <th>Role</th>
+      <th>Location</th>
+      <th>Fit</th>
+      <th>Relevance</th>
+      <th>ATS</th>
+      <th>Posting</th>
+      <th style="text-align: right;">Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+      {% include "_job_row.html" %}
+    {% endfor %}
+  </tbody>
+</table>
+{% if not rows %}
+  <p style="padding: 1.5rem; color: var(--ink-muted);">No jobs match the filters — try lowering Min fit or running Refresh.</p>
+{% endif %}

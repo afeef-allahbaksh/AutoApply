@@ -1,7 +1,6 @@
 import hashlib
 import json
 import re
-from pathlib import Path
 
 from src.api import create_message
 from src.profile_loader import PROFILES_DIR
@@ -93,7 +92,11 @@ def optimize_resume(base_resume: dict, job_description: str) -> dict:
         raw_json = raw_json.split("\n", 1)[1]
         raw_json = raw_json.rsplit("```", 1)[0]
 
-    result = json.loads(raw_json)
+    try:
+        result = json.loads(raw_json)
+    except json.JSONDecodeError as e:
+        print(f"  Warning: optimizer returned invalid JSON ({e}). Falling back to base resume.")
+        return base_resume
 
     # New format: {"keywords": [...], "resume": {...}}
     # Old format fallback: flat resume dict with "contact" key
@@ -105,7 +108,12 @@ def optimize_resume(base_resume: dict, job_description: str) -> dict:
     else:
         optimized = result
 
-    validate_resume(optimized)
+    try:
+        validate_resume(optimized)
+    except Exception as e:
+        print(f"  Warning: optimizer returned invalid resume schema ({e}). Falling back to base resume.")
+        return base_resume
+
     return optimized
 
 
@@ -147,12 +155,18 @@ def select_projects(base_resume: dict, job_description: str) -> dict:
         raw = raw.split("\n", 1)[1]
         raw = raw.rsplit("```", 1)[0]
 
-    result = json.loads(raw)
-    selected_names = set(result["selected"])
+    try:
+        result = json.loads(raw)
+        selected_names_list = result["selected"]
+    except (json.JSONDecodeError, TypeError, KeyError) as e:
+        print(f"  Warning: project selector returned invalid response ({e}). Keeping current projects.")
+        return {"projects": current_projects, "reasoning": [], "had_pool": True}
+
+    selected_names = set(selected_names_list)
 
     # Build the projects list in selection order
     pool_by_name = {p["name"]: p for p in pool}
-    selected_projects = [pool_by_name[name] for name in result["selected"] if name in pool_by_name]
+    selected_projects = [pool_by_name[name] for name in selected_names_list if name in pool_by_name]
 
     # Fallback: if Claude returned wrong count, pad or trim
     if len(selected_projects) < num_projects:

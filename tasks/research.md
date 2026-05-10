@@ -1,6 +1,30 @@
 # ATS Public API Research: Greenhouse & Lever
 
-Research conducted 2026-03-31 with live API testing.
+Research conducted 2026-03-31 with live API testing. Frozen-in-time snapshot.
+
+> **Scope of this document.** This was the pre-implementation pass for the
+> Greenhouse and Lever public APIs that drive `src/discovery.py` and
+> `src/job_discovery.py`. Subsequent integration work (IMAP inbox sync,
+> Claude/regex email classification, kanban UI, streaming background worker)
+> didn't need standalone research docs — the canonical references live in
+> the corresponding source files:
+>
+> - **IMAP** — `src/inbox/auth.py` (app-password credential storage + login
+>   verification), `src/inbox/fetch.py` (bulk FETCH with two-phase
+>   header/body pull). RFC 3501 is the source of truth for IMAP semantics.
+> - **Claude email classification prompt** — `src/inbox/classify.py:PROMPT`
+>   documents the prompt design and JSON schema inline.
+> - **Free-mode regex classifier** — `src/inbox/keyword_classify.py` has all
+>   patterns in priority order at the top of the file.
+> - **Application matching algorithm** — `src/inbox/matcher.py`: thread-id
+>   → classifier company → sender domain stem → subject prefix → body scan
+>   against existing applications.
+> - **Sync orchestrator + rate limiting** — `src/inbox/sync.py` for the
+>   pipeline, `src/api.py:reserve_input_tokens` for the sliding-window
+>   token bucket that keeps the classifier under Anthropic Tier 1 TPM.
+>
+> Future research that goes beyond reading external docs (e.g. an Ashby or
+> Workday ATS pass) should be added as new top-level sections below.
 
 ---
 

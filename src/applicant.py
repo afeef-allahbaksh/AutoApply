@@ -7,7 +7,7 @@ from pathlib import Path
 from src.ats_greenhouse import fill_greenhouse_application
 from src.ats_lever import fill_lever_application
 from src.browser import get_browser_context
-from src.profile_loader import PROFILES_DIR, Profile
+from src.profile_loader import PROFILES_DIR, Profile, normalize_posting_url
 from src.resume_optimizer import (
     batch_select_projects, find_cached_resume, optimize_resume,
     _optimization_hash, _slugify, save_tailored_resume, select_projects,
@@ -45,9 +45,11 @@ def _save_applications(profile_name: str, applications: list) -> None:
 
 
 def _is_already_applied(applications: list, company: str, role: str, posting_url: str) -> bool:
-    """Check composite key dedup."""
+    """Check composite key dedup, normalizing URLs to ignore tracking params."""
+    target = normalize_posting_url(posting_url)
     return any(
-        a["company"] == company and a["role"] == role and a["posting_url"] == posting_url
+        a["company"] == company and a["role"] == role
+        and normalize_posting_url(a["posting_url"]) == target
         for a in applications
     )
 
@@ -93,7 +95,8 @@ def apply_to_jobs(
     name_slug = _slugify(profile.data.get("name", ""))
     resumes_dir = profile.profile_dir / "resumes"
 
-    pw, browser, context = get_browser_context(headless=headless)
+    state_path = profile.profile_dir / "browser_state.json"
+    pw, browser, context = get_browser_context(headless=headless, storage_state_path=state_path)
     page = context.new_page()
 
     try:
@@ -111,228 +114,257 @@ def apply_to_jobs(
                 results.append({"company": company, "role": role, "status": "skipped"})
                 continue
 
-            # Find tailored resume PDF — generate one if it doesn't exist
-            resume_path = ""
-            if resumes_dir.exists():
-                matching = sorted(resumes_dir.glob(f"{name_slug}_{_slugify(company)}*.pdf"), reverse=True)
-                if not matching:
-                    matching = sorted(resumes_dir.glob(f"{_slugify(company)}_{_slugify(role)}*.pdf"), reverse=True)
-                if matching:
-                    resume_path = str(matching[0])
-                    print(f"  Using tailored resume: {matching[0].name}")
-
-            # Auto-generate tailored resume if none found and base resume exists
-            if not resume_path and resume_data:
-                try:
-                    job_content = job.get("content", role)
-
-                    # Use batched project selection if available, else fall back to single call
-                    if project_selections and project_selections[i]["had_pool"]:
-                        selection = project_selections[i]
-                    else:
-                        selection = select_projects(resume_data, job_content)
-
-                    if selection["had_pool"]:
-                        print(f"  Selected projects: {', '.join(p['name'] for p in selection['projects'])}")
-                        tailored_base = {**resume_data, "projects": selection["projects"]}
-                    else:
-                        tailored_base = resume_data
-
-                    # Check cache before calling API
-                    cached = find_cached_resume(profile.profile_name, tailored_base, job_content, company)
-                    if cached:
-                        resume_path = cached["pdf"]
-                        print(f"  Using cached resume: {Path(resume_path).name}")
-                    else:
-                        print(f"  Generating tailored resume...")
-                        optimized = optimize_resume(tailored_base, job_content)
-                        opt_hash = _optimization_hash(tailored_base, job_content)
-                        paths = save_tailored_resume(profile.profile_name, optimized, company, role, optimization_hash=opt_hash)
-                        resume_path = paths["pdf"]
-                        print(f"  Saved: {Path(resume_path).name}")
-                except Exception as e:
-                    print(f"  Warning: Could not generate tailored resume: {e}")
-
-            # Fill the form
-            if ats == "greenhouse":
-                fill_result = fill_greenhouse_application(
-                    page=page,
-                    job_url=posting_url,
-                    profile_data=profile.data,
-                    responses=profile.responses,
-                    resume_path=resume_path,
-                    job_content=job.get("content", ""),
-                    resume_data=resume_data,
-                    company=company,
-                    role=role,
+            try:
+                _quit_loop = _process_job(
+                    page, context, job, profile, resume_data, project_selections,
+                    applications, results, name_slug, resumes_dir,
+                    auto_submit, dry_run, rate_limit, i, len(jobs),
                 )
-            elif ats == "lever":
-                fill_result = fill_lever_application(
-                    page=page,
-                    job_url=posting_url,
-                    profile_data=profile.data,
-                    responses=profile.responses,
-                    resume_path=resume_path,
-                    job_content=job.get("content", ""),
-                    resume_data=resume_data,
-                    company=company,
-                    role=role,
-                )
-            else:
-                print(f"  Skipped: unsupported ATS '{ats}'")
-                results.append({"company": company, "role": role, "status": "skipped"})
-                continue
-
-            if not fill_result["success"]:
-                error_msg = fill_result["error"] or "Unknown error"
-                print(f"  Failed: {error_msg}")
-                # Screenshot on failure for debugging
-                fail_screenshot = _take_screenshot(page, profile.profile_name, company, f"{role}_FAILED")
-                print(f"  Failure screenshot: {fail_screenshot}")
-
-                # Detect CAPTCHA — pause for user to solve, then retry on current page
-                page_text = page.content().lower()
-                if "captcha" in page_text or "recaptcha" in page_text or "hcaptcha" in page_text:
-                    print(f"  CAPTCHA detected! Pausing for manual intervention.")
-                    print(f"  Solve the CAPTCHA in the browser, then press Enter to retry.")
-                    try:
-                        input("  Press Enter after solving CAPTCHA (or Ctrl+C to skip)...")
-                        # Retry form fill on the current page (don't re-navigate)
-                        fill_fn = fill_greenhouse_application if ats == "greenhouse" else fill_lever_application
-                        fill_result = fill_fn(
-                            page=page,
-                            job_url=posting_url,
-                            profile_data=profile.data,
-                            responses=profile.responses,
-                            resume_path=resume_path,
-                            job_content=job.get("content", ""),
-                            resume_data=resume_data,
-                            company=company,
-                            role=role,
-                        )
-                    except (EOFError, KeyboardInterrupt):
-                        print(f"  Skipping CAPTCHA'd application.")
-
-                if not fill_result["success"]:
-                    # Save progress for retry
-                    progress_path = _save_progress(
-                        profile.profile_name, job,
-                        fill_result.get("fields_filled", []),
-                        fill_result.get("custom_answers", []),
-                    )
-                    print(f"  Progress saved: {progress_path}")
-
-                    fail_entry = {
-                        "company": company,
-                        "role": role,
-                        "posting_url": posting_url,
-                        "date": date.today().isoformat(),
-                        "status": "failed",
-                        "ats": ats,
-                        "error": fill_result.get("error") or error_msg,
-                    }
-                    if job.get("fit_score") is not None:
-                        fail_entry["fit_score"] = job["fit_score"]
-                        fail_entry["fit_rationale"] = job.get("fit_rationale", "")
-                    applications.append(fail_entry)
-                    _save_applications(profile.profile_name, applications)
-                    results.append({"company": company, "role": role, "status": "failed"})
-                    continue
-
-            print(f"  Filled: {', '.join(fill_result['fields_filled'])}")
-            if fill_result["custom_answers"]:
-                print(f"  Custom Qs answered: {len(fill_result['custom_answers'])}")
-
-            # Screenshot for review
-            screenshot = _take_screenshot(page, profile.profile_name, company, role)
-            print(f"  Screenshot: {screenshot}")
-
-            if dry_run:
-                print(f"  [DRY RUN] Form filled — not submitting")
-                results.append({"company": company, "role": role, "status": "dry_run"})
-                if i < len(jobs) - 1:
-                    jitter = random.uniform(0.5, 1.5)
-                    delay = rate_limit * jitter
-                    print(f"  Waiting {delay:.0f}s before next application...")
-                    time.sleep(delay)
-                continue
-
-            if auto_submit:
-                # Submit the form
-                submit_btn = page.locator('button:has-text("Submit")')
-                if submit_btn.count() > 0:
-                    submit_btn.first.click()
-                    time.sleep(3)
-                    print(f"  Submitted!")
-                    status = "applied"
-                else:
-                    print(f"  Warning: Submit button not found")
-                    status = "failed"
-            else:
-                print(f"  Paused for review (auto_submit is off)")
-                print(f"  Review the screenshot and the form in the browser.")
-                try:
-                    response = input("  Submit? (y/n/q): ").strip().lower()
-                except EOFError:
-                    response = "n"
-
-                if response == "y":
-                    submit_btn = page.locator('button:has-text("Submit")')
-                    if submit_btn.count() > 0:
-                        submit_btn.first.click()
-                        time.sleep(3)
-                        print(f"  Submitted!")
-                        status = "applied"
-                    else:
-                        print(f"  Submit button not found")
-                        status = "failed"
-                elif response == "q":
-                    print("  Quitting apply loop.")
-                    status = "review_pending"
-                    applications.append({
-                        "company": company,
-                        "role": role,
-                        "posting_url": posting_url,
-                        "date": date.today().isoformat(),
-                        "status": status,
-                        "ats": ats,
-                        "tailored_resume_path": resume_path,
-                    })
-                    _save_applications(profile.profile_name, applications)
-                    results.append({"company": company, "role": role, "status": status})
+                if _quit_loop:
                     break
-                else:
-                    print(f"  Skipped by user.")
-                    status = "skipped"
+            except Exception as e:
+                # Unexpected crash mid-job — log, screenshot, reset page, continue
+                print(f"  Crashed: {e}")
+                try:
+                    crash_shot = _take_screenshot(page, profile.profile_name, company, f"{role}_CRASHED")
+                    print(f"  Crash screenshot: {crash_shot}")
+                except Exception:
+                    pass
 
-            # Log application
-            app_entry = {
-                "company": company,
-                "role": role,
-                "posting_url": posting_url,
-                "date": date.today().isoformat(),
-                "status": status,
-                "ats": ats,
-            }
-            if resume_path:
-                app_entry["tailored_resume_path"] = resume_path
-            if job.get("fit_score") is not None:
-                app_entry["fit_score"] = job["fit_score"]
-                app_entry["fit_rationale"] = job.get("fit_rationale", "")
-            applications.append(app_entry)
-            _save_applications(profile.profile_name, applications)
-            results.append({"company": company, "role": role, "status": status})
+                applications.append({
+                    "company": company, "role": role, "posting_url": posting_url,
+                    "date": date.today().isoformat(), "status": "failed",
+                    "ats": ats, "error": f"Unhandled: {e}",
+                    "status_updated_at": date.today().isoformat(),
+                    "source": "autoapply",
+                })
+                try:
+                    _save_applications(profile.profile_name, applications)
+                except (OSError, json.JSONDecodeError) as save_err:
+                    print(f"  Warning: failed to persist crash entry: {save_err}")
+                results.append({"company": company, "role": role, "status": "failed"})
 
-            # Rate limiting with randomization
-            if i < len(jobs) - 1:
-                jitter = random.uniform(0.5, 1.5)
-                delay = rate_limit * jitter
-                print(f"  Waiting {delay:.0f}s before next application...")
-                time.sleep(delay)
+                # Reset page state for next job — fresh page if current is dead
+                try:
+                    page.goto("about:blank", timeout=5000)
+                except Exception:
+                    try:
+                        page = context.new_page()
+                    except Exception:
+                        pass
 
     finally:
+        try:
+            context.storage_state(path=str(state_path))
+        except Exception as e:
+            print(f"  Warning: could not save browser state: {e}")
         context.close()
         browser.close()
         pw.stop()
 
     return results
+
+
+def _process_job(
+    page, context, job, profile, resume_data, project_selections,
+    applications, results, name_slug, resumes_dir,
+    auto_submit, dry_run, rate_limit, i, total_jobs,
+) -> bool:
+    """Process a single job. Returns True if the user wants to quit the apply loop."""
+    company = job["company"]
+    role = job["title"]
+    posting_url = job["posting_url"]
+    ats = job.get("ats", "")
+
+    # Find tailored resume PDF — generate one if it doesn't exist
+    resume_path = ""
+    if resumes_dir.exists():
+        matching = sorted(resumes_dir.glob(f"{name_slug}_{_slugify(company)}*.pdf"), reverse=True)
+        if not matching:
+            matching = sorted(resumes_dir.glob(f"{_slugify(company)}_{_slugify(role)}*.pdf"), reverse=True)
+        if matching:
+            resume_path = str(matching[0])
+            print(f"  Using tailored resume: {matching[0].name}")
+
+    # Auto-generate tailored resume if none found and base resume exists
+    if not resume_path and resume_data:
+        try:
+            job_content = job.get("content", role)
+
+            # Use batched project selection if available, else fall back to single call
+            if project_selections and project_selections[i]["had_pool"]:
+                selection = project_selections[i]
+            else:
+                selection = select_projects(resume_data, job_content)
+
+            if selection["had_pool"]:
+                print(f"  Selected projects: {', '.join(p['name'] for p in selection['projects'])}")
+                tailored_base = {**resume_data, "projects": selection["projects"]}
+            else:
+                tailored_base = resume_data
+
+            # Check cache before calling API
+            cached = find_cached_resume(profile.profile_name, tailored_base, job_content, company)
+            if cached:
+                resume_path = cached["pdf"]
+                print(f"  Using cached resume: {Path(resume_path).name}")
+            else:
+                print(f"  Generating tailored resume...")
+                optimized = optimize_resume(tailored_base, job_content)
+                opt_hash = _optimization_hash(tailored_base, job_content)
+                paths = save_tailored_resume(profile.profile_name, optimized, company, role, optimization_hash=opt_hash)
+                resume_path = paths["pdf"]
+                print(f"  Saved: {Path(resume_path).name}")
+        except Exception as e:
+            print(f"  Warning: Could not generate tailored resume: {e}")
+
+    # Fill the form
+    if ats == "greenhouse":
+        fill_result = fill_greenhouse_application(
+            page=page, job_url=posting_url, profile_data=profile.data,
+            responses=profile.responses, resume_path=resume_path,
+            job_content=job.get("content", ""), resume_data=resume_data,
+            company=company, role=role,
+        )
+    elif ats == "lever":
+        fill_result = fill_lever_application(
+            page=page, job_url=posting_url, profile_data=profile.data,
+            responses=profile.responses, resume_path=resume_path,
+            job_content=job.get("content", ""), resume_data=resume_data,
+            company=company, role=role,
+        )
+    else:
+        print(f"  Skipped: unsupported ATS '{ats}'")
+        results.append({"company": company, "role": role, "status": "skipped"})
+        return False
+
+    if not fill_result["success"]:
+        error_msg = fill_result["error"] or "Unknown error"
+        print(f"  Failed: {error_msg}")
+        fail_screenshot = _take_screenshot(page, profile.profile_name, company, f"{role}_FAILED")
+        print(f"  Failure screenshot: {fail_screenshot}")
+
+        # Detect CAPTCHA — pause for user to solve, then retry on current page
+        page_text = page.content().lower()
+        if "captcha" in page_text or "recaptcha" in page_text or "hcaptcha" in page_text:
+            print(f"  CAPTCHA detected! Pausing for manual intervention.")
+            print(f"  Solve the CAPTCHA in the browser, then press Enter to retry.")
+            try:
+                input("  Press Enter after solving CAPTCHA (or Ctrl+C to skip)...")
+                fill_fn = fill_greenhouse_application if ats == "greenhouse" else fill_lever_application
+                fill_result = fill_fn(
+                    page=page, job_url=posting_url, profile_data=profile.data,
+                    responses=profile.responses, resume_path=resume_path,
+                    job_content=job.get("content", ""), resume_data=resume_data,
+                    company=company, role=role,
+                )
+            except (EOFError, KeyboardInterrupt):
+                print(f"  Skipping CAPTCHA'd application.")
+
+        if not fill_result["success"]:
+            progress_path = _save_progress(
+                profile.profile_name, job,
+                fill_result.get("fields_filled", []),
+                fill_result.get("custom_answers", []),
+            )
+            print(f"  Progress saved: {progress_path}")
+
+            fail_entry = {
+                "company": company, "role": role, "posting_url": posting_url,
+                "date": date.today().isoformat(), "status": "failed",
+                "ats": ats, "error": fill_result.get("error") or error_msg,
+                "status_updated_at": date.today().isoformat(),
+                "source": "autoapply",
+            }
+            if job.get("fit_score") is not None:
+                fail_entry["fit_score"] = job["fit_score"]
+                fail_entry["fit_rationale"] = job.get("fit_rationale", "")
+            applications.append(fail_entry)
+            _save_applications(profile.profile_name, applications)
+            results.append({"company": company, "role": role, "status": "failed"})
+            return False
+
+    print(f"  Filled: {', '.join(fill_result['fields_filled'])}")
+    if fill_result["custom_answers"]:
+        print(f"  Custom Qs answered: {len(fill_result['custom_answers'])}")
+
+    screenshot = _take_screenshot(page, profile.profile_name, company, role)
+    print(f"  Screenshot: {screenshot}")
+
+    if dry_run:
+        print(f"  [DRY RUN] Form filled — not submitting")
+        results.append({"company": company, "role": role, "status": "dry_run"})
+        if i < total_jobs - 1:
+            jitter = random.uniform(0.5, 1.5)
+            delay = rate_limit * jitter
+            print(f"  Waiting {delay:.0f}s before next application...")
+            time.sleep(delay)
+        return False
+
+    if auto_submit:
+        submit_btn = page.locator('button:has-text("Submit")')
+        if submit_btn.count() > 0:
+            submit_btn.first.click()
+            time.sleep(3)
+            print(f"  Submitted!")
+            status = "applied"
+        else:
+            print(f"  Warning: Submit button not found")
+            status = "failed"
+    else:
+        print(f"  Paused for review (auto_submit is off)")
+        print(f"  Review the screenshot and the form in the browser.")
+        try:
+            response = input("  Submit? (y/n/q): ").strip().lower()
+        except EOFError:
+            response = "n"
+
+        if response == "y":
+            submit_btn = page.locator('button:has-text("Submit")')
+            if submit_btn.count() > 0:
+                submit_btn.first.click()
+                time.sleep(3)
+                print(f"  Submitted!")
+                status = "applied"
+            else:
+                print(f"  Submit button not found")
+                status = "failed"
+        elif response == "q":
+            print("  Quitting apply loop.")
+            status = "review_pending"
+            applications.append({
+                "company": company, "role": role, "posting_url": posting_url,
+                "date": date.today().isoformat(), "status": status,
+                "ats": ats, "tailored_resume_path": resume_path,
+                "status_updated_at": date.today().isoformat(),
+                "source": "autoapply",
+            })
+            _save_applications(profile.profile_name, applications)
+            results.append({"company": company, "role": role, "status": status})
+            return True
+        else:
+            print(f"  Skipped by user.")
+            status = "skipped"
+
+    app_entry = {
+        "company": company, "role": role, "posting_url": posting_url,
+        "date": date.today().isoformat(), "status": status, "ats": ats,
+        "status_updated_at": date.today().isoformat(),
+        "source": "autoapply",
+    }
+    if resume_path:
+        app_entry["tailored_resume_path"] = resume_path
+    if job.get("fit_score") is not None:
+        app_entry["fit_score"] = job["fit_score"]
+        app_entry["fit_rationale"] = job.get("fit_rationale", "")
+    applications.append(app_entry)
+    _save_applications(profile.profile_name, applications)
+    results.append({"company": company, "role": role, "status": status})
+
+    if i < total_jobs - 1:
+        jitter = random.uniform(0.5, 1.5)
+        delay = rate_limit * jitter
+        print(f"  Waiting {delay:.0f}s before next application...")
+        time.sleep(delay)
+
+    return False

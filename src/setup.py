@@ -187,8 +187,11 @@ def run_setup(profile_name: str | None = None) -> str:
             all_projects = list(base_projects)
             seen_names = {p["name"].lower() for p in all_projects}
 
-            while _ask_yes_no("Add projects from another resume PDF?"):
-                extra_pdf = _ask("Path to resume PDF").strip("'\"")
+            while True:
+                response = input("  Add projects from another resume PDF? (path or N to skip): ").strip().strip("'\"")
+                if not response or response.lower() in ("n", "no", "done", "skip"):
+                    break
+                extra_pdf = response
                 if not Path(extra_pdf).exists():
                     print(f"    File not found: {extra_pdf}")
                     continue
