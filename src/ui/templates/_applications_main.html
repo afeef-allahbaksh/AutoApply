@@ -15,8 +15,7 @@
             hx-target="#applications-content"
             hx-swap="outerHTML"
             style="margin-left: auto;">
-        <button type="submit" class="btn-ghost"
-                style="padding: 0.25rem 0.625rem; font-size: 11px;"
+        <button type="submit" class="btn-ghost btn-sm"
                 {% if sync_status.cancel_requested %}disabled{% endif %}>
           {{ 'Cancelling…' if sync_status.cancel_requested else 'Cancel' }}
         </button>

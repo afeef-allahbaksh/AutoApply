@@ -197,20 +197,23 @@
     transition: border-color var(--duration-fast) var(--ease),
                 color var(--duration-fast) var(--ease),
                 background var(--duration-fast) var(--ease),
-                transform var(--duration-fast) var(--ease);
+                transform var(--duration-fast) var(--ease),
+                box-shadow var(--duration-fast) var(--ease);
     padding: 0;
     box-shadow: var(--shadow-subtle);
   }
   .hover-action:hover {
-    border-color: var(--ink-strong);
+    border-color: var(--accent);
     color: var(--ink-strong);
-    background: var(--canvas-sunken);
+    background: var(--canvas-elevated);
     transform: scale(1.08);
+    box-shadow: var(--shadow-accent-glow);
   }
   .hover-action.danger:hover {
     border-color: var(--status-danger);
     color: var(--status-danger);
     background: var(--status-danger-bg);
+    box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.18);
   }
 
   .kanban-card-company {

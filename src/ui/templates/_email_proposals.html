@@ -82,7 +82,7 @@
             <div style="display: flex; gap: 0.375rem; align-items: center; flex-shrink: 0;">
               <span class="proposal-confidence {{ conf_class }}">{{ "%.0f"|format(p.confidence * 100) }}%</span>
               {% if p.message_url %}
-                <a href="{{ p.message_url }}" target="_blank" rel="noopener" class="btn-ghost" style="padding: 0.25rem 0.625rem; font-size: 11px;">View</a>
+                <a href="{{ p.message_url }}" target="_blank" rel="noopener" class="btn-ghost btn-sm">View</a>
               {% endif %}
               {% if p.resolution == 'ambiguous' and p.candidate_labels %}
                 <form hx-post="/email/proposals/{{ p.id }}/apply"
@@ -94,20 +94,18 @@
                       <option value="{{ c.idx }}">{{ c.label }}</option>
                     {% endfor %}
                   </select>
-                  <button type="submit" class="btn-primary" style="padding: 0.25rem 0.625rem; font-size: 11px;">Apply</button>
+                  <button type="submit" class="btn-primary btn-sm">Apply</button>
                 </form>
               {% else %}
-                <button class="btn-primary"
+                <button class="btn-primary btn-sm"
                         hx-post="/email/proposals/{{ p.id }}/apply"
                         hx-target="#applications-content"
-                        hx-swap="outerHTML"
-                        style="padding: 0.25rem 0.625rem; font-size: 11px;">Apply</button>
+                        hx-swap="outerHTML">Apply</button>
               {% endif %}
-              <button class="btn-ghost"
+              <button class="btn-ghost btn-sm"
                       hx-post="/email/proposals/{{ p.id }}/dismiss"
                       hx-target="#applications-content"
-                      hx-swap="outerHTML"
-                      style="padding: 0.25rem 0.625rem; font-size: 11px;">Dismiss</button>
+                      hx-swap="outerHTML">Dismiss</button>
             </div>
           </div>
         </div>
