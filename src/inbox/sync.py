@@ -481,11 +481,19 @@ def _propose_for_chunk(profile_name: str, chunk: list[dict], classified: list[di
         # silently dropping, surface it as "create a new entry at this status"
         # so the user can decide. They can dismiss if it's not relevant.
         if c["action_type"] == "status_update" and match["resolution"] == "no_match":
-            # Skip only if we don't have enough company info to make a useful
-            # placeholder entry — otherwise upgrade to new_application.
             if not c.get("company"):
                 continue
             c = {**c, "action_type": "new_application"}
+        # Dedup against the existing kanban: if a `new_application` proposal's
+        # company already has an entry (matcher said match/ambiguous), skip it.
+        # The message still gets marked processed, so it won't recur on next
+        # sync. Without this, a re-confirmation email or a duplicate from a
+        # different ATS system would propose creating a second kanban card.
+        if c["action_type"] == "new_application" and match["resolution"] in ("match", "ambiguous"):
+            target = match.get("target_idx", match.get("candidates"))
+            print(f"[inbox] dedup: skipping new_application proposal for "
+                  f"{c.get('company') or '?'} (already on kanban — matched entry/entries: {target})")
+            continue
         out.append(_build_proposal(msg, c, match))
         existing_ids.add(msg["id"])
     return out
