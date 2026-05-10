@@ -87,14 +87,17 @@
     padding: 0 0.25rem 0.625rem 0.25rem;
   }
   .kanban-col-title {
-    font-family: 'Fraunces', Georgia, serif;
-    font-size: 16px;
-    font-weight: 500;
+    font-family: 'Geist', sans-serif;
+    font-size: 13.5px;
+    font-weight: 600;
     letter-spacing: -0.01em;
     margin: 0;
-    color: var(--ink);
+    color: var(--ink-strong);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 11.5px;
   }
-  .kanban-col-rejected .kanban-col-title { color: var(--ink-muted); font-style: italic; }
+  .kanban-col-rejected .kanban-col-title { color: var(--ink-muted); }
   .kanban-col-offer    .kanban-col-title { color: var(--accent); }
 
   .kanban-col-count {
@@ -118,10 +121,9 @@
   }
 
   .kanban-col-placeholder {
-    font-family: 'Fraunces', Georgia, serif;
-    font-style: italic;
+    font-family: 'Geist', sans-serif;
     color: var(--ink-soft);
-    font-size: 12.5px;
+    font-size: 12px;
     text-align: center;
     padding: 0.5rem 0;
     opacity: 0;
