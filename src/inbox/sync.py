@@ -356,7 +356,10 @@ def _classify_chunk(chunk: list[dict], classifier: str, profile_name: str) -> li
         from src.discovery import _load_companies
         try:
             known = _load_companies(profile_name)
-        except Exception:
+        except (OSError, ValueError):
+            # Missing or malformed companies.json — fall back to empty list so
+            # the classifier still runs; company extraction degrades to
+            # sender-domain only.
             known = []
         return keyword_classify.classify_messages(chunk, known)
     return classify.classify_messages(chunk)

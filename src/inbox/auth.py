@@ -91,7 +91,9 @@ def verify_credentials(creds: ImapCredentials) -> tuple[bool, str]:
         return False, f"Could not reach {creds.server}:{creds.port} ({e})"
     try:
         conn.logout()
-    except Exception:
+    except (imaplib.IMAP4.error, OSError):
+        # Best-effort cleanup — if logout fails the connection will time out
+        # naturally. Don't surface this to the caller; verification succeeded.
         pass
     return True, ""
 

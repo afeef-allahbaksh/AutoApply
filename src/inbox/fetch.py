@@ -179,7 +179,8 @@ def list_message_headers_since(
     finally:
         try:
             conn.logout()
-        except Exception:
+        except (imaplib.IMAP4.error, OSError):
+            # Best-effort cleanup; idle connections expire server-side anyway.
             pass
 
 
@@ -228,7 +229,7 @@ def populate_bodies(creds: ImapCredentials, messages: list[dict]) -> None:
                         print(f"[inbox] body chunk {chunk_idx} failed ({e}); reconnecting")
                         try:
                             conn.logout()
-                        except Exception:
+                        except (imaplib.IMAP4.error, OSError):
                             pass
                         conn = _open_select(creds)
                     else:
@@ -242,7 +243,8 @@ def populate_bodies(creds: ImapCredentials, messages: list[dict]) -> None:
     finally:
         try:
             conn.logout()
-        except Exception:
+        except (imaplib.IMAP4.error, OSError):
+            # Best-effort cleanup; idle connections expire server-side anyway.
             pass
 
 

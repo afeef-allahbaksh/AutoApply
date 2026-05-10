@@ -231,6 +231,8 @@ def save_responses(
     lock = state.profile_lock(profile_name)
     with lock:
         existing = _read_responses(profile_name)
+        # Empty submitted fields preserve the existing value rather than wiping
+        # it — a textarea you didn't touch shouldn't blank out your stored answer.
         for key, value in [
             ("work_authorization", work_authorization),
             ("visa_sponsorship", visa_sponsorship),
@@ -241,8 +243,6 @@ def save_responses(
         ]:
             if value.strip():
                 existing[key] = value.strip()
-            elif key in existing and not value:
-                pass
         if not existing:
             return _settings_response(
                 request, profile_name, responses_data=existing,
