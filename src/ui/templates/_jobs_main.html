@@ -1,0 +1,43 @@
+<div id="jobs-content"
+  {% if discover_running %}hx-get="/jobs/discover_status" hx-trigger="every 4s" hx-swap="outerHTML" hx-include="#jobs-filters"{% endif %}>
+
+  {% if discover_running %}
+    <div class="sync-banner sync-banner-running">
+      <span class="spinner"></span>
+      <span>{{ discover_status.message or 'Discovering jobs…' }}</span>
+      {% if discover_status.companies_total %}
+        <span class="sync-progress">
+          {{ discover_status.companies_processed or 0 }} / {{ discover_status.companies_total }} companies ·
+          {{ discover_status.jobs_fetched or 0 }} jobs so far
+        </span>
+      {% endif %}
+      <form hx-post="/jobs/discover_cancel"
+            hx-target="#jobs-content"
+            hx-swap="outerHTML"
+            hx-include="#jobs-filters"
+            style="margin-left: auto;">
+        <button type="submit" class="btn-ghost btn-sm"
+                {% if discover_status.cancel_requested %}disabled{% endif %}>
+          {{ 'Cancelling…' if discover_status.cancel_requested else 'Cancel' }}
+        </button>
+      </form>
+    </div>
+  {% elif discover_status and discover_status.state == 'error' %}
+    <div class="sync-banner sync-banner-error">Job discovery failed: {{ discover_status.error }}</div>
+  {% elif discover_status and discover_status.state == 'interrupted' %}
+    <div class="sync-banner sync-banner-warning">{{ discover_status.message }}</div>
+  {% elif discover_status and discover_status.state == 'cancelled' %}
+    <div class="sync-banner sync-banner-warning">{{ discover_status.message or 'Job discovery cancelled.' }}</div>
+  {% endif %}
+
+  {% if discover_msg %}
+    <div class="badge badge-success" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ discover_msg }}</div>
+  {% endif %}
+  {% if discover_err %}
+    <div class="badge badge-danger" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ discover_err }}</div>
+  {% endif %}
+
+  <div id="jobs-table" class="glass-card" style="padding: 0; overflow: hidden;">
+    {% include "_jobs_table.html" %}
+  </div>
+</div>

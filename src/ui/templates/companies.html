@@ -1,62 +1,18 @@
 {% extends "base.html" %}
+{% block header_actions %}
+<form hx-post="/companies/discover"
+      hx-target="#companies-content"
+      hx-swap="outerHTML"
+      hx-indicator="#discover-spinner"
+      style="display: inline-flex; gap: 0.625rem; align-items: center;">
+  <button type="submit" class="btn-primary" hx-disabled-elt="this"
+          title="Validate the curated seed list against Greenhouse and Lever; new companies are merged into companies.json.">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+    Discover companies
+  </button>
+  <span id="discover-spinner" class="htmx-indicator spinner" style="margin-left: 0.25rem;"></span>
+</form>
+{% endblock %}
 {% block content %}
-<div style="display: grid; grid-template-columns: 1fr 360px; gap: 1.5rem; align-items: start;">
-  <div class="glass-card" style="padding: 0; overflow: hidden;">
-    <div style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--rule);">
-      <div class="section-label">{{ companies|length }} companies tracked</div>
-    </div>
-    {% if companies %}
-      <table class="app-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Slug</th>
-            <th>ATS</th>
-            <th>Careers</th>
-            <th>Added</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for c in companies %}
-            <tr>
-              <td style="font-weight: 500;">{{ c.name }}</td>
-              <td style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--ink-muted);">{{ c.slug }}</td>
-              <td><span class="badge badge-neutral">{{ c.ats }}</span></td>
-              <td><a href="{{ c.careers_url }}" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: underline;">link</a></td>
-              <td style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--ink-muted);">{{ c.added or '—' }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <p style="padding: 1.5rem; color: var(--ink-muted);">No companies yet — add one with the form on the right.</p>
-    {% endif %}
-  </div>
-
-  <div class="glass-card" style="padding: 1.5rem;">
-    <div class="section-label" style="margin-bottom: 0.75rem;">Add company</div>
-    {% if added %}
-      <div class="badge badge-success" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ added }}</div>
-    {% endif %}
-    {% if error %}
-      <div class="badge badge-danger" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ error }}</div>
-    {% endif %}
-    <form method="post" action="/companies" style="display: flex; flex-direction: column; gap: 0.875rem;">
-      <div>
-        <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Slug</label>
-        <input class="pill-input" name="slug" placeholder="e.g. anthropic" required style="width: 100%;">
-        <p style="font-size: 11px; color: var(--ink-muted); margin-top: 0.25rem;">The URL-safe identifier from greenhouse.io or lever.co.</p>
-      </div>
-      <div>
-        <label class="section-label" style="display: block; margin-bottom: 0.25rem;">ATS</label>
-        <select class="pill-select" name="ats" style="width: 100%;">
-          <option value="auto" selected>auto-detect</option>
-          <option value="greenhouse">greenhouse</option>
-          <option value="lever">lever</option>
-        </select>
-      </div>
-      <button type="submit" class="btn-primary" style="justify-content: center;">Add</button>
-    </form>
-  </div>
-</div>
+{% include "_companies_main.html" %}
 {% endblock %}

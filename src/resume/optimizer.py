@@ -2,9 +2,9 @@ import hashlib
 import json
 import re
 
-from src.api import create_message
+from src.api import create_message, strip_code_fences
 from src.profile_loader import PROFILES_DIR
-from src.resume_renderer import render_resume_pdf
+from src.resume.renderer import render_resume_pdf
 from src.schemas import validate_resume
 
 
@@ -87,10 +87,7 @@ def optimize_resume(base_resume: dict, job_description: str) -> dict:
         }],
     )
 
-    raw_json = message.content[0].text.strip()
-    if raw_json.startswith("```"):
-        raw_json = raw_json.split("\n", 1)[1]
-        raw_json = raw_json.rsplit("```", 1)[0]
+    raw_json = strip_code_fences(message.content[0].text)
 
     try:
         result = json.loads(raw_json)
@@ -150,10 +147,7 @@ def select_projects(base_resume: dict, job_description: str) -> dict:
         }],
     )
 
-    raw = message.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1]
-        raw = raw.rsplit("```", 1)[0]
+    raw = strip_code_fences(message.content[0].text)
 
     try:
         result = json.loads(raw)
@@ -182,99 +176,12 @@ def select_projects(base_resume: dict, job_description: str) -> dict:
     }
 
 
-BATCH_SELECT_PROJECTS_PROMPT = """You are an expert resume strategist. Given a pool of projects and MULTIPLE job descriptions, select the {num_projects} most relevant projects for EACH job.
-
-Rules:
-1. Pick exactly {num_projects} projects per job — no more, no less
-2. Choose projects whose technologies, domain, or demonstrated skills best match each job's requirements
-3. Different jobs may get different project selections
-4. Consider both direct keyword matches AND transferable skills
-
-Return ONLY valid JSON in this exact format — no markdown fences, no commentary:
-{{
-  "selections": [
-    {{"job_index": 0, "selected": ["Project Name 1", "Project Name 2"]}},
-    {{"job_index": 1, "selected": ["Project Name 3", "Project Name 1"]}},
-    ...
-  ]
-}}
-
-Project pool:
-{project_pool_json}
-
-Jobs:
-{jobs_list}
-
-Return the selection JSON:"""
-
-
-def batch_select_projects(base_resume: dict, jobs: list[dict]) -> list[dict]:
-    """Select projects for multiple jobs in a single LLM call.
-
-    Returns list of selection dicts (same format as select_projects return value),
-    one per job in the same order as the input jobs list.
-    """
-    pool = base_resume.get("project_pool", [])
-    current_projects = base_resume.get("projects", [])
-    num_projects = len(current_projects)
-
-    # If no pool or pool too small, return default for all jobs
-    if not pool or len(pool) <= num_projects:
-        return [{"projects": current_projects, "reasoning": [], "had_pool": False}] * len(jobs)
-
-    pool_json = json.dumps(
-        [{"name": p["name"], "technologies": p.get("technologies", ""), "bullets": p["bullets"]} for p in pool],
-        indent=2,
-    )
-
-    jobs_list = "\n".join(
-        f"Job {i}: {job.get('title', '')} at {job.get('company', '')}\n{job.get('content', '')[:300]}"
-        for i, job in enumerate(jobs)
-    )
-
-    message = create_message(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4096,
-        messages=[{
-            "role": "user",
-            "content": BATCH_SELECT_PROJECTS_PROMPT.format(
-                num_projects=num_projects,
-                project_pool_json=pool_json,
-                jobs_list=jobs_list,
-            ),
-        }],
-    )
-
-    raw = message.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1]
-        raw = raw.rsplit("```", 1)[0]
-
-    pool_by_name = {p["name"]: p for p in pool}
-
-    try:
-        result = json.loads(raw)
-        selections_by_index = {s["job_index"]: s["selected"] for s in result["selections"]}
-    except (json.JSONDecodeError, TypeError, KeyError):
-        # Fallback: return current projects for all
-        return [{"projects": current_projects, "reasoning": [], "had_pool": True}] * len(jobs)
-
-    results = []
-    for i in range(len(jobs)):
-        selected_names = selections_by_index.get(i, [])
-        selected_projects = [pool_by_name[name] for name in selected_names if name in pool_by_name]
-
-        # Pad or trim to exact count
-        if len(selected_projects) < num_projects:
-            used = {p["name"] for p in selected_projects}
-            for p in pool:
-                if p["name"] not in used and len(selected_projects) < num_projects:
-                    selected_projects.append(p)
-        selected_projects = selected_projects[:num_projects]
-
-        results.append({"projects": selected_projects, "reasoning": [], "had_pool": True})
-
-    return results
+# NOTE: batch_select_projects() and its prompt were deleted in Phase 29's
+# CLI-retirement pass — they were only called by the CLI batch-apply path
+# (apply_to_jobs in src/applicant.py, now gone). If multi-job batch optimize
+# returns from the UI someday, mirror the existing batch_generate_outreach
+# pattern in src/cold_email.py — it has better fallback semantics than the
+# old function did.
 
 
 def _slugify(text: str) -> str:

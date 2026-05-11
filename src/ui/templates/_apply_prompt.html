@@ -1,0 +1,25 @@
+{# Pending-prompt modal — surfaces whenever the worker is blocked on prompt.ask().
+   Included by single-job (_apply_main.html) and batch (_batch_apply_main.html).
+   Caller supplies: pending_prompt dict + post_url (the route that handles the
+   prompt response). #}
+{% if pending_prompt %}
+  <div class="glass-card" style="padding: 1.25rem 1.5rem; margin-bottom: 1rem; border-left: 3px solid var(--accent);">
+    <div class="section-label" style="margin-bottom: 0.5rem;">Worker needs your input</div>
+    <p style="margin: 0 0 0.875rem 0; font-size: 14px; color: var(--ink);">{{ pending_prompt.question }}</p>
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+      {% for choice in pending_prompt.choices %}
+        <form hx-post="{{ post_url }}"
+              hx-target="{{ hx_target }}"
+              hx-swap="outerHTML"
+              style="display: inline;">
+          <input type="hidden" name="prompt_id" value="{{ pending_prompt.id }}">
+          <input type="hidden" name="value" value="{{ choice }}">
+          <button type="submit"
+                  class="{% if choice in ('submit', 'continue') %}btn-primary{% else %}btn-ghost{% endif %}">
+            {{ choice }}
+          </button>
+        </form>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}

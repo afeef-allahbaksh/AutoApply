@@ -8,14 +8,24 @@ secret stored on disk is more powerful than the OAuth refresh token it replaces.
 import imaplib
 import json
 import socket
+import ssl
 from dataclasses import dataclass
 from pathlib import Path
+
+import certifi
 
 from src.profile_loader import PROFILES_DIR
 
 DEFAULT_IMAP_SERVER = "imap.gmail.com"
 DEFAULT_IMAP_PORT = 993
 CONNECT_TIMEOUT = 15
+
+
+def _ssl_context() -> ssl.SSLContext:
+    """CA bundle from certifi so the python.org macOS distribution can verify
+    Gmail / Outlook / etc. certs without relying on the system keychain
+    (which it doesn't read by default)."""
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 @dataclass
@@ -76,7 +86,7 @@ def disconnect(profile_name: str) -> None:
 def open_imap(creds: ImapCredentials) -> imaplib.IMAP4_SSL:
     """Open and authenticate an IMAP_SSL connection. Caller must `.logout()`."""
     socket.setdefaulttimeout(CONNECT_TIMEOUT)
-    conn = imaplib.IMAP4_SSL(creds.server, creds.port)
+    conn = imaplib.IMAP4_SSL(creds.server, creds.port, ssl_context=_ssl_context())
     conn.login(creds.email, creds.password)
     return conn
 

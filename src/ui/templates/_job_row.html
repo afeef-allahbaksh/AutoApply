@@ -1,4 +1,10 @@
 <tr id="job-row-{{ row._idx }}">
+  <td style="width: 32px;">
+    <input type="checkbox"
+           name="job_indices"
+           value="{{ row._idx }}"
+           aria-label="Select for batch apply">
+  </td>
   <td style="font-weight: 500;">{{ row.company }}</td>
   <td style="color: var(--ink); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ row.title }}">{{ row.title }}</td>
   <td style="color: var(--ink-muted);">{{ row.location or '—' }}</td>
@@ -12,22 +18,32 @@
     {% if tracked_now %}
       <span class="badge badge-success">tracked as {{ tracked_status }}</span>
     {% else %}
-      <form hx-post="/jobs/{{ row._idx }}/track"
-            hx-target="#job-row-{{ row._idx }}"
-            hx-swap="outerHTML"
-            hx-disabled-elt="find button"
-            style="display: inline-flex; gap: 0.5rem; align-items: center;">
-        <select name="status" class="pill-select" style="padding: 0.25rem 0.625rem; font-size: 12px;">
-          <option value="applied" selected>applied</option>
-          <option value="screen">screen</option>
-          <option value="technical">technical</option>
-          <option value="onsite">onsite</option>
-          <option value="offer">offer</option>
-          <option value="rejected">rejected</option>
-        </select>
-        <button type="submit" class="btn-primary" style="padding: 0.25rem 0.875rem; font-size: 12px;">Track</button>
-        <span class="htmx-indicator spinner"></span>
-      </form>
+      <div style="display: inline-flex; gap: 0.5rem; align-items: center;">
+        <a href="/jobs/{{ row._idx }}/optimize"
+           class="btn-ghost btn-sm"
+           style="padding: 0.25rem 0.625rem; font-size: 12px;"
+           title="Tailor resume for this job (Claude, ~$0.025)">Optimize</a>
+        <a href="/jobs/{{ row._idx }}/apply"
+           class="btn-ghost btn-sm"
+           style="padding: 0.25rem 0.625rem; font-size: 12px;"
+           title="Fill the application via Playwright (opens a visible browser)">Apply</a>
+        <form hx-post="/jobs/{{ row._idx }}/track"
+              hx-target="#job-row-{{ row._idx }}"
+              hx-swap="outerHTML"
+              hx-disabled-elt="find button"
+              style="display: inline-flex; gap: 0.5rem; align-items: center;">
+          <select name="status" class="pill-select" style="padding: 0.25rem 0.625rem; font-size: 12px;">
+            <option value="applied" selected>applied</option>
+            <option value="screen">screen</option>
+            <option value="technical">technical</option>
+            <option value="onsite">onsite</option>
+            <option value="offer">offer</option>
+            <option value="rejected">rejected</option>
+          </select>
+          <button type="submit" class="btn-primary" style="padding: 0.25rem 0.875rem; font-size: 12px;">Track</button>
+          <span class="htmx-indicator spinner"></span>
+        </form>
+      </div>
     {% endif %}
   </td>
 </tr>

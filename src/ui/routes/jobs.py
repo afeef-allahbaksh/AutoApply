@@ -1,29 +1,32 @@
 import json
 from datetime import date
+from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse
 
 from src.applicant import _save_applications
-from src.job_discovery import discover_jobs
-from src.profile_loader import Profile
+from src.jobs import discover_jobs
+from src.profile_loader import PROFILES_DIR, Profile
+from src.tasks import runner
 
 from .. import state
 from ..deps import template_context
+from ..pipeline import load_jobs
 from ..templates_loader import templates
 
 router = APIRouter()
 
 
 def _load_jobs(profile_name: str) -> list:
-    try:
-        profile = Profile(profile_name)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    path = profile.profile_dir / "jobs.json"
-    if not path.exists():
-        return []
-    with open(path) as f:
-        return json.load(f)
+    """Compat wrapper — keeps the route's existing 404-on-missing-profile
+    semantics distinct from the lenient shared `load_jobs` which returns []."""
+    if profile_name:
+        try:
+            Profile(profile_name)  # surfaces FileNotFoundError → 404
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+    return load_jobs(profile_name)
 
 
 def _filtered(jobs: list, min_fit: int, company: str, ats: str) -> list:
@@ -38,16 +41,76 @@ def _filtered(jobs: list, min_fit: int, company: str, ats: str) -> list:
     return enriched
 
 
+def _any_fit_scored(jobs: list) -> bool:
+    """True if at least one job in jobs.json has a fit_score. Used to decide
+    whether the default min_fit filter would silently hide everything."""
+    return any(j.get("fit_score") is not None for j in jobs)
+
+
+def _discover_jobs_status_path(profile_name: str) -> Path:
+    return PROFILES_DIR / profile_name / "discover_jobs_status.json"
+
+
+def _discover_jobs_task_key(profile_name: str) -> str:
+    return f"discover-jobs:{profile_name}"
+
+
+def _read_discover_jobs_status(profile_name: str) -> dict:
+    if not profile_name:
+        return {"state": "idle"}
+    return runner.read_status(
+        _discover_jobs_status_path(profile_name),
+        _discover_jobs_task_key(profile_name),
+        interrupted_message="Job discovery interrupted (worker stopped). Click Refresh to retry.",
+    )
+
+
+def _render_jobs_main(
+    request: Request,
+    profile_name: str,
+    *,
+    min_fit: int = 3,
+    company: str = "",
+    ats: str = "",
+    discover_msg: str = "",
+    discover_err: str = "",
+) -> HTMLResponse:
+    """Render the #jobs-content partial — banner + table. Used by every
+    discover-related mutating route AND by the 4s polling endpoint."""
+    jobs = _load_jobs(profile_name) if profile_name else []
+    rows = _filtered(jobs, min_fit, company, ats)
+    discover_status = _read_discover_jobs_status(profile_name)
+    return templates.TemplateResponse(
+        request, "_jobs_main.html",
+        {
+            "request": request,
+            "rows": rows,
+            "total": len(jobs),
+            "discover_status": discover_status,
+            "discover_running": discover_status.get("state") == "running",
+            "discover_msg": discover_msg,
+            "discover_err": discover_err,
+        },
+    )
+
+
 @router.get("/jobs")
 def jobs_page(
     request: Request,
-    min_fit: int = 3,
+    min_fit: int | None = None,
     company: str = "",
     ats: str = "",
 ):
     profile_name = state.active_profile()
     jobs = _load_jobs(profile_name) if profile_name else []
+    # When the user hasn't explicitly set min_fit, auto-relax to 0 if no jobs
+    # have been scored (no resume → no fit scores → default of 3 would hide
+    # everything). Otherwise the historical default is 3.
+    fit_scored = _any_fit_scored(jobs)
+    if min_fit is None:
+        min_fit = 3 if fit_scored else 0
     rows = _filtered(jobs, min_fit, company, ats)
+    discover_status = _read_discover_jobs_status(profile_name)
     return templates.TemplateResponse(
         request, "jobs.html",
         template_context(
@@ -58,7 +121,39 @@ def jobs_page(
             company=company,
             ats=ats,
             total=len(jobs),
+            fit_scored=fit_scored,
+            discover_status=discover_status,
+            discover_running=discover_status.get("state") == "running",
+            discover_msg="",
+            discover_err="",
         ),
+    )
+
+
+def _discover_jobs_worker(profile_name: str) -> None:
+    """Background worker — streams progress from `discover_jobs` to the status file."""
+    sf = _discover_jobs_status_path(profile_name)
+
+    def work():
+        def on_progress(**kw):
+            # All fields pass through; the template reads phase/message/counters.
+            runner.write_status(sf, **kw)
+
+        def cancel_check():
+            return runner.is_cancel_requested(sf)
+
+        discover_jobs(
+            profile_name,
+            on_progress=on_progress,
+            cancel_check=cancel_check,
+        )
+
+    runner.run_with_terminal_status(
+        sf,
+        work=work,
+        idle_message="Job discovery complete.",
+        cancelled_message="Job discovery cancelled. jobs.json unchanged.",
+        log_prefix="[discover-jobs]",
     )
 
 
@@ -69,15 +164,78 @@ def refresh_jobs(
     company: str = Form(""),
     ats: str = Form(""),
 ):
+    """Start a background discover-jobs task. Returns the #jobs-content
+    partial with the running banner; HTMX swaps it in and the banner then
+    polls /jobs/discover_status every 4s until the task finishes."""
     profile_name = state.active_profile()
-    lock = state.profile_lock(profile_name)
-    with lock:
-        discover_jobs(profile_name)
-        jobs = _load_jobs(profile_name)
-    rows = _filtered(jobs, min_fit, company, ats)
-    return templates.TemplateResponse(
-        request, "_jobs_table.html",
-        {"request": request, "rows": rows, "total": len(jobs)},
+    if not profile_name:
+        return _render_jobs_main(
+            request, profile_name,
+            min_fit=min_fit, company=company, ats=ats,
+            discover_err="No active profile.",
+        )
+    started, msg = runner.start_task(
+        task_key=_discover_jobs_task_key(profile_name),
+        status_file=_discover_jobs_status_path(profile_name),
+        target=_discover_jobs_worker,
+        args=(profile_name,),
+        initial_status={
+            "phase": "starting",
+            "companies_total": 0,
+            "companies_processed": 0,
+            "jobs_fetched": 0,
+            "message": "Starting job discovery…",
+        },
+        thread_name=f"discover-jobs-{profile_name}",
+        already_running_msg="Job discovery already in progress for this profile.",
+    )
+    if not started:
+        return _render_jobs_main(
+            request, profile_name,
+            min_fit=min_fit, company=company, ats=ats,
+            discover_err=msg,
+        )
+    return _render_jobs_main(
+        request, profile_name,
+        min_fit=min_fit, company=company, ats=ats,
+        discover_msg="Job discovery started in the background.",
+    )
+
+
+@router.get("/jobs/discover_status")
+def discover_jobs_status(
+    request: Request,
+    min_fit: int = 3,
+    company: str = "",
+    ats: str = "",
+):
+    """Polled while job discovery is running. The polling element includes the
+    filter form values via `hx-include`, so the table re-renders with the
+    user's current filter even mid-discovery."""
+    profile_name = state.active_profile()
+    return _render_jobs_main(
+        request, profile_name,
+        min_fit=min_fit, company=company, ats=ats,
+    )
+
+
+@router.post("/jobs/discover_cancel")
+def discover_jobs_cancel(
+    request: Request,
+    min_fit: int = Form(3),
+    company: str = Form(""),
+    ats: str = Form(""),
+):
+    profile_name = state.active_profile()
+    flipped = runner.request_cancel(_discover_jobs_status_path(profile_name))
+    msg = (
+        "Cancel requested — discovery will stop at the next phase boundary."
+        if flipped else "No discovery running."
+    )
+    return _render_jobs_main(
+        request, profile_name,
+        min_fit=min_fit, company=company, ats=ats,
+        discover_msg=msg,
     )
 
 

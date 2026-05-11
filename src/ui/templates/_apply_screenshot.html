@@ -1,0 +1,16 @@
+{# Live screenshot of the form being filled — visible during run and after.
+   Caller supplies: screenshot_url (route that serves the PNG) + a cache-bust
+   suffix in the URL so the browser refetches on each status change. #}
+{% if status.screenshot_path %}
+  <div class="glass-card" style="padding: 1rem 1.25rem; margin-bottom: 1rem;">
+    <div style="display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.625rem;">
+      <div class="section-label">Filled form (latest screenshot)</div>
+      <span style="margin-left: auto; font-size: 11px; color: var(--ink-muted); font-feature-settings: 'tnum';">
+        updates as the worker progresses
+      </span>
+    </div>
+    <img src="{{ screenshot_url }}"
+         alt="Application form screenshot"
+         style="width: 100%; max-width: 900px; border: 1px solid var(--rule); border-radius: var(--radius-md); display: block;">
+  </div>
+{% endif %}

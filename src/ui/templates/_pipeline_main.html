@@ -1,0 +1,37 @@
+<div id="pipeline-content"
+  {% if pipeline_running %}hx-get="/pipeline/status" hx-trigger="every 4s" hx-swap="outerHTML"{% endif %}>
+
+  {% if pipeline_running %}
+    <div class="sync-banner sync-banner-running" style="margin-bottom: 1.5rem;">
+      <span class="spinner"></span>
+      <span>{{ pipeline_status.message or 'Running pipeline…' }}</span>
+      {% if pipeline_status.stage %}<span class="sync-progress">stage: {{ pipeline_status.stage }}</span>{% endif %}
+      <form hx-post="/pipeline/cancel"
+            hx-target="#pipeline-content"
+            hx-swap="outerHTML"
+            style="margin-left: auto;">
+        <button type="submit" class="btn-ghost btn-sm"
+                {% if pipeline_status.cancel_requested %}disabled{% endif %}>
+          {{ 'Cancelling…' if pipeline_status.cancel_requested else 'Cancel' }}
+        </button>
+      </form>
+    </div>
+  {% elif pipeline_status and pipeline_status.state == 'error' %}
+    <div class="sync-banner sync-banner-error" style="margin-bottom: 1.5rem;">Pipeline failed: {{ pipeline_status.error }}</div>
+  {% elif pipeline_status and pipeline_status.state == 'interrupted' %}
+    <div class="sync-banner sync-banner-warning" style="margin-bottom: 1.5rem;">{{ pipeline_status.message }}</div>
+  {% elif pipeline_status and pipeline_status.state == 'cancelled' %}
+    <div class="sync-banner sync-banner-warning" style="margin-bottom: 1.5rem;">{{ pipeline_status.message or 'Pipeline cancelled.' }}</div>
+  {% elif pipeline_status and pipeline_status.state == 'idle' and pipeline_status.stage == 'complete' %}
+    <div class="glass-card" style="padding: 0.875rem 1.125rem; margin-bottom: 1.5rem; border-left: 3px solid var(--status-success); background: var(--status-success-bg);">
+      <div style="display: flex; align-items: baseline; gap: 0.625rem; flex-wrap: wrap;">
+        <strong style="color: var(--ink-strong); font-size: 13px;">Pipeline complete.</strong>
+        <span style="font-size: 12.5px; color: var(--ink);">Companies and matching jobs refreshed. Review the matches and pick what to apply to.</span>
+        <a href="/jobs" class="btn-primary btn-sm" style="margin-left: auto;">Review jobs →</a>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if pipeline_msg %}<div class="badge badge-success" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1.25rem;">{{ pipeline_msg }}</div>{% endif %}
+  {% if pipeline_err %}<div class="badge badge-danger" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1.25rem;">{{ pipeline_err }}</div>{% endif %}
+</div>

@@ -1,0 +1,307 @@
+"""Claude-backed answers for Greenhouse's free-text and dropdown questions.
+
+Three layers of strategy per field:
+  1. Canned response keyword match (`responses` dict)
+  2. Smart skip for optional fields user lacks data for (URLs without website,
+     referral without referrer info, always-skip personal preferences)
+  3. Claude call (`answer_custom_question` or `answer_select_question`)
+"""
+import time
+
+from playwright.sync_api import Page
+
+from src.api import create_message
+from src.ats.applicant_context import build_applicant_context
+
+from .fields import CUSTOM_QUESTION
+from .selectors import fuzzy_match_options
+
+
+def answer_custom_question(
+    question_text: str,
+    job_content: str,
+    profile_data: dict,
+    resume_data: dict | None = None,
+    responses: dict | None = None,
+) -> str:
+    """Use Claude to answer a custom free-text question."""
+    context = build_applicant_context(profile_data, resume_data, responses or {})
+
+    message = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=300,
+        messages=[{
+            "role": "user",
+            "content": f"""Answer this job application question using the applicant's real data below.
+
+The question text may include section headers, subtitles, or surrounding UI text scraped from the form. Identify the ACTUAL question being asked and answer ONLY that. Ignore decorative headings like "Personal Preferences", "Additional Information", etc.
+
+Question (may include surrounding text): {question_text}
+
+Applicant data:
+{context}
+
+Job description:
+{job_content[:2000]}
+
+Rules:
+- BE CONCISE. Give the shortest accurate answer possible. A human filling this form would write brief answers, not essays.
+- For dates (start date, availability, graduation): return ONLY the date (e.g. "June 2026")
+- For yes/no questions: return ONLY "Yes" or "No"
+- For factual questions (name pronunciation, university, GPA, location): return ONLY the fact
+- For URL/link fields: return ONLY the bare URL
+- For open-ended questions: answer in 1-2 sentences MAX. Be direct, no filler.
+- Use EXACT data from the applicant profile — never fabricate
+- If the question matches a pre-set response, use that exact value
+- Do NOT mention being excited, passionate, or enthusiastic — sounds like AI
+- Do NOT reference the job description or company name unless the question specifically asks about it
+- If the text is not a real question, or you don't have the data to answer, return ONLY the single word SKIP — nothing else
+- NEVER explain why you can't answer. NEVER say "I don't see a question". Just return SKIP.
+- Return ONLY the answer text, no quotes or labels""",
+        }],
+    )
+    result = message.content[0].text.strip()
+    if result.upper() == "SKIP":
+        return ""
+    return result
+
+
+def answer_select_question(
+    question_text: str,
+    options: list[str],
+    job_content: str,
+    profile_data: dict,
+    resume_data: dict | None = None,
+    responses: dict | None = None,
+) -> str:
+    """Use Claude to pick the best option from a dropdown for a custom question."""
+    context = build_applicant_context(profile_data, resume_data, responses or {})
+    options_str = "\n".join(f"- {opt}" for opt in options)
+
+    message = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=100,
+        messages=[{
+            "role": "user",
+            "content": f"""Pick the best option for this job application dropdown question.
+
+Question: {question_text}
+
+Available options:
+{options_str}
+
+Applicant data:
+{context}
+
+Job description (excerpt):
+{job_content[:1000]}
+
+Rules:
+- Return ONLY the exact text of one of the available options, nothing else
+- Pick the option that best matches the applicant's data
+- If the question matches a pre-set response, pick the closest matching option
+- If unsure, pick the most neutral/safe option""",
+        }],
+    )
+    return message.content[0].text.strip()
+
+
+def _get_question_text(page: Page, q, q_id: str) -> str:
+    """Extract the actual question text for a form field.
+
+    Greenhouse forms have a pattern where the label can be a section header
+    (e.g. "(Optional) Personal Preferences") and the real question is in a
+    description div (e.g. "How do you pronounce your name?"). This function
+    checks the description div first, then falls back to the label.
+    """
+    label_text = ""
+    description_text = ""
+
+    label_el = page.locator(f'label[for="{q_id}"]')
+    if label_el.count() > 0:
+        label_text = label_el.first.inner_text().strip()
+    else:
+        parent = q.locator("..").first
+        label_text = parent.inner_text().strip()[:200]
+
+    if q_id:
+        desc_el = page.locator(f'#{q_id}-description')
+        if desc_el.count() > 0:
+            try:
+                description_text = desc_el.first.inner_text().strip()
+            except Exception:
+                pass
+
+    if description_text and label_text:
+        # Section headers tend to be vague labels without a question mark
+        label_lower = label_text.lower()
+        is_section_header = any(kw in label_lower for kw in [
+            "personal preference", "additional info", "optional",
+            "supplemental", "general info",
+        ]) and "?" not in label_text
+        if is_section_header:
+            return description_text
+
+    if description_text and label_text:
+        return f"{label_text}: {description_text}"
+
+    return label_text or description_text
+
+
+def handle_custom_questions(
+    page: Page,
+    responses: dict,
+    job_content: str,
+    profile_data: dict,
+    resume_data: dict | None = None,
+    skip_ids: set[str] | None = None,
+) -> list[dict]:
+    """Find and answer custom questions on the form.
+
+    Checks canned responses first, then falls back to Claude with full context.
+    Skips any field whose id is in skip_ids (e.g. demographics already filled).
+    Returns a list of {question, answer, method} dicts for logging.
+    """
+    answered = []
+    skip_ids = skip_ids or set()
+    questions = page.locator(CUSTOM_QUESTION).all()
+
+    for q in questions:
+        try:
+            q_id = q.get_attribute("id") or ""
+            if q_id and q_id in skip_ids:
+                continue
+            label_text = _get_question_text(page, q, q_id)
+
+            if not label_text:
+                continue
+
+            tag = q.evaluate("el => el.tagName.toLowerCase()")
+
+            answer = None
+            label_lower = label_text.lower()
+            for key, value in responses.items():
+                if key.lower() in label_lower:
+                    answer = value
+                    method = "canned"
+                    break
+
+            role = q.get_attribute("role") or ""
+
+            if role == "combobox":
+                # React Select — open, gather options, pick or claude-answer
+                q.click()
+                time.sleep(0.5)
+                option_els = page.locator('[role="option"]').all()
+                option_labels = [o.inner_text().strip() for o in option_els if o.inner_text().strip()]
+
+                if answer is not None and option_labels:
+                    answer_lower = answer.lower().strip()
+                    if answer not in option_labels:
+                        for opt in option_labels:
+                            if opt.lower() == answer_lower or opt.lower() in answer_lower or answer_lower in opt.lower():
+                                answer = opt
+                                break
+
+                if answer is None:
+                    if option_labels:
+                        answer = answer_select_question(
+                            label_text, option_labels, job_content,
+                            profile_data, resume_data=resume_data, responses=responses,
+                        )
+                    else:
+                        answer = answer_custom_question(
+                            label_text, job_content, profile_data,
+                            resume_data=resume_data, responses=responses,
+                        )
+                    method = "claude"
+
+                matched = False
+                for opt_el in page.locator('[role="option"]').all():
+                    if opt_el.inner_text().strip() == answer:
+                        opt_el.click()
+                        matched = True
+                        break
+                if not matched:
+                    # Type and select first match
+                    q.fill("")
+                    q.type(answer, delay=50)
+                    time.sleep(0.8)
+                    first_opt = page.locator('[role="option"]').first
+                    try:
+                        if first_opt.is_visible(timeout=1000):
+                            first_opt.click()
+                        else:
+                            q.press("ArrowDown")
+                            q.press("Enter")
+                    except Exception:
+                        q.press("Enter")
+                answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
+                q.press("Escape")
+
+            elif tag in ("input", "textarea") and q.get_attribute("type") != "file":
+                is_required = q.get_attribute("aria-required") == "true"
+                if answer is None and not is_required:
+                    # Always skip — purely personal, no impact on application
+                    always_skip = ["pronounce", "preference", "pronoun", "nickname"]
+                    if any(kw in label_lower for kw in always_skip):
+                        continue
+
+                    # Skip only if user doesn't have the data
+                    url_keywords = ["website", "portfolio", "personal site", "blog",
+                                    "publication", "scholar"]
+                    if any(kw in label_lower for kw in url_keywords) and not profile_data.get("website"):
+                        continue
+                    referral_keywords = ["referral", "referred by", "how did you hear"]
+                    if any(kw in label_lower for kw in referral_keywords) and not responses.get("referral"):
+                        continue
+
+                if answer is None:
+                    answer = answer_custom_question(
+                        label_text, job_content, profile_data,
+                        resume_data=resume_data, responses=responses,
+                    )
+                    method = "claude"
+                if not answer or not answer.strip():
+                    continue
+                q.fill(answer)
+                answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
+
+            elif tag == "select":
+                option_els = q.locator("option").all()
+                option_labels = [o.inner_text().strip() for o in option_els
+                                 if o.inner_text().strip() and not o.inner_text().strip().startswith("Select")]
+
+                if answer is not None and option_labels:
+                    # Canned response matched, but for selects we need to pick the closest option
+                    # e.g., canned "Yes, I am authorized..." should pick "Yes" from a Yes/No dropdown
+                    answer_lower = answer.lower().strip()
+                    if answer not in option_labels:
+                        for opt in option_labels:
+                            if opt.lower() == answer_lower or opt.lower() in answer_lower or answer_lower in opt.lower():
+                                answer = opt
+                                break
+
+                if answer is None:
+                    if option_labels:
+                        answer = answer_select_question(
+                            label_text, option_labels, job_content,
+                            profile_data, resume_data=resume_data, responses=responses,
+                        )
+                    else:
+                        answer = answer_custom_question(
+                            label_text, job_content, profile_data,
+                            resume_data=resume_data, responses=responses,
+                        )
+                    method = "claude"
+                try:
+                    q.select_option(label=answer)
+                    answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
+                except Exception:
+                    if fuzzy_match_options(q, answer):
+                        answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
+
+        except Exception:
+            continue
+
+    return answered

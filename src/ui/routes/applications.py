@@ -19,6 +19,7 @@ from ..pipeline import (
     STATUS_BADGE_CLASS,
     kanban_groups,
     load_applications,
+    timeline_rows,
 )
 from ..templates_loader import templates
 
@@ -47,13 +48,17 @@ def _render_kanban(request: Request, profile_name: str) -> HTMLResponse:
 
 
 @router.get("/applications")
-def applications_page(request: Request, q: str = ""):
+def applications_page(request: Request, q: str = "", view: str = "kanban"):
     from src.inbox import auth as inbox_auth
     from src.inbox import sync as inbox_sync
+
+    if view not in ("kanban", "timeline"):
+        view = "kanban"
 
     profile_name = state.active_profile()
     apps = load_applications(profile_name) if profile_name else []
     columns, closed = kanban_groups(apps, q)
+    rows = timeline_rows(apps, q) if view == "timeline" else []
     proposals = inbox_sync.enrich_proposals(profile_name) if profile_name else []
     inbox_connected = inbox_auth.is_connected(profile_name) if profile_name else False
     return templates.TemplateResponse(
@@ -61,10 +66,12 @@ def applications_page(request: Request, q: str = ""):
         template_context(
             request,
             page_title="Applications",
+            view=view,
             columns=columns,
             kanban_columns=KANBAN_COLUMNS,
             column_headers=COLUMN_HEADERS,
             closed=closed,
+            rows=rows,
             q=q,
             all_statuses=ALL_STATUSES,
             pipeline=PIPELINE,

@@ -1,0 +1,40 @@
+<div id="kanban-grid" class="glass-card" style="padding: 0; overflow: hidden;">
+  {% if rows %}
+    <table class="app-table">
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Fit</th>
+          <th>Company</th>
+          <th>Role</th>
+          <th>Applied</th>
+          <th>Updated</th>
+          <th>Source</th>
+          <th style="text-align: right;">Posting</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in rows %}
+          <tr>
+            <td><span class="badge {{ status_badge_class.get(a.get('status'), 'badge-neutral') }}">{{ a.get('status', '—') }}</span></td>
+            <td style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--ink-muted);">
+              {% if a.get('fit_score') is not none %}{{ a.fit_score }}/5{% else %}—{% endif %}
+            </td>
+            <td style="font-weight: 500;">{{ a.get('company', '—') }}</td>
+            <td style="color: var(--ink-muted);">{{ a.get('role', '—') }}</td>
+            <td><span class="mono">{{ a.get('date', '—') }}</span></td>
+            <td><span class="mono">{{ a.get('status_updated_at') or a.get('date', '—') }}</span></td>
+            <td><span class="badge badge-neutral">{{ a.get('source', 'autoapply') }}</span></td>
+            <td style="text-align: right;">
+              {% if a.get('posting_url') %}
+                <a href="{{ a.posting_url }}" target="_blank" rel="noopener" class="text-link" style="font-size: 12px;">open ↗</a>
+              {% else %}<span style="color: var(--ink-muted);">—</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p style="padding: 1.5rem; color: var(--ink-muted);">No applications match the current filter — clear the search or switch back to the Kanban view to add one.</p>
+  {% endif %}
+</div>

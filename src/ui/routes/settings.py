@@ -1,11 +1,14 @@
 import json
+import os
+import tempfile
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
 
 from src.inbox import auth as inbox_auth
 from src.inbox.auth import ImapCredentials
 from src.profile_loader import PROFILES_DIR
+from src.resume.parser import parse_pdf_to_resume
 from src.role_expander import expand_roles
 from src.schemas import validate_profile, validate_responses
 
@@ -15,6 +18,8 @@ from ..templates_loader import templates
 
 router = APIRouter()
 
+MAX_PDF_BYTES = 10 * 1024 * 1024  # 10MB — keeps a malicious upload from blowing memory
+
 
 def _read_profile(profile_name: str) -> dict:
     path = PROFILES_DIR / profile_name / "profile.json"
@@ -22,6 +27,103 @@ def _read_profile(profile_name: str) -> dict:
         raise HTTPException(status_code=404, detail=f"profile.json not found for {profile_name}")
     with open(path) as f:
         return json.load(f)
+
+
+def _resume_info(profile_name: str) -> dict:
+    """Compact summary of the profile's resume.json for the Settings card."""
+    empty = {"exists": False, "sections": [], "project_count": 0, "project_pool_names": []}
+    if not profile_name:
+        return empty
+    path = PROFILES_DIR / profile_name / "resume.json"
+    if not path.exists():
+        return empty
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return empty
+    pool = data.get("project_pool") or data.get("projects") or []
+    return {
+        "exists": True,
+        "sections": data.get("section_order", []),
+        "project_count": len(pool),
+        "project_pool_names": [p.get("name", "?") for p in pool],
+    }
+
+
+def _parse_pdf_bytes(pdf_bytes: bytes) -> dict:
+    """Write the uploaded bytes to a temp file and run the existing PDF parser.
+    Cleans up the temp file regardless of parser outcome."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(pdf_bytes)
+        tmp_path = tmp.name
+    try:
+        return parse_pdf_to_resume(tmp_path)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+def _import_resume_from_bytes(profile_name: str, pdf_bytes: bytes) -> dict:
+    """Parse PDF bytes and overwrite resume.json. Returns the parsed dict.
+    Raises ValueError for size limits and propagates parser exceptions."""
+    if len(pdf_bytes) == 0:
+        raise ValueError("Empty file.")
+    if len(pdf_bytes) > MAX_PDF_BYTES:
+        raise ValueError(f"File too large (>{MAX_PDF_BYTES // (1024 * 1024)}MB).")
+    resume_data = _parse_pdf_bytes(pdf_bytes)
+    output = PROFILES_DIR / profile_name / "resume.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with open(output, "w") as f:
+        json.dump(resume_data, f, indent=2)
+        f.write("\n")
+    return resume_data
+
+
+def _add_projects_from_bytes(profile_name: str, pdf_bytes: bytes) -> dict:
+    """Parse a PDF and merge its projects into the existing project_pool.
+    Returns {"added": n, "total": N, "added_names": [...], "skipped_names": [...]}.
+    Raises if resume.json doesn't exist."""
+    if len(pdf_bytes) == 0:
+        raise ValueError("Empty file.")
+    if len(pdf_bytes) > MAX_PDF_BYTES:
+        raise ValueError(f"File too large (>{MAX_PDF_BYTES // (1024 * 1024)}MB).")
+
+    resume_path = PROFILES_DIR / profile_name / "resume.json"
+    if not resume_path.exists():
+        raise FileNotFoundError("No resume.json — import a full resume first.")
+    with open(resume_path) as f:
+        resume_data = json.load(f)
+
+    base_projects = resume_data.get("projects", [])
+    pool = list(resume_data.get("project_pool", base_projects))
+    seen_names = {p["name"].lower() for p in pool}
+
+    extra = _parse_pdf_bytes(pdf_bytes)
+    extra_projects = extra.get("projects", [])
+    added_names = []
+    skipped_names = []
+    for p in extra_projects:
+        if p["name"].lower() not in seen_names:
+            pool.append(p)
+            seen_names.add(p["name"].lower())
+            added_names.append(p["name"])
+        else:
+            skipped_names.append(p["name"])
+
+    if added_names:
+        resume_data["project_pool"] = pool
+        with open(resume_path, "w") as f:
+            json.dump(resume_data, f, indent=2)
+            f.write("\n")
+    return {
+        "added": len(added_names),
+        "total": len(pool),
+        "added_names": added_names,
+        "skipped_names": skipped_names,
+    }
 
 
 def _write_profile(profile_name: str, data: dict) -> None:
@@ -64,6 +166,8 @@ def _settings_response(
     responses_err: str = "",
     inbox_msg: str = "",
     inbox_err: str = "",
+    resume_msg: str = "",
+    resume_err: str = "",
 ):
     if profile_data is None:
         profile_data = _read_profile(profile_name) if profile_name else {}
@@ -86,6 +190,9 @@ def _settings_response(
             inbox_err=inbox_err,
             default_imap_server=inbox_auth.DEFAULT_IMAP_SERVER,
             default_imap_port=inbox_auth.DEFAULT_IMAP_PORT,
+            resume_info=_resume_info(profile_name),
+            resume_msg=resume_msg,
+            resume_err=resume_err,
         ),
     )
 
@@ -99,12 +206,15 @@ def settings_page(
     responses_err: str = "",
     inbox_msg: str = "",
     inbox_err: str = "",
+    resume_msg: str = "",
+    resume_err: str = "",
 ):
     return _settings_response(
         request, state.active_profile(),
         profile_msg=profile_msg, profile_err=profile_err,
         responses_msg=responses_msg, responses_err=responses_err,
         inbox_msg=inbox_msg, inbox_err=inbox_err,
+        resume_msg=resume_msg, resume_err=resume_err,
     )
 
 
@@ -139,6 +249,82 @@ def disconnect_inbox():
     profile_name = state.active_profile()
     inbox_auth.disconnect(profile_name)
     return RedirectResponse(url="/settings?inbox_msg=Disconnected.+Credentials+deleted.", status_code=303)
+
+
+def _urlencode_msg(msg: str) -> str:
+    """RedirectResponse query params don't support spaces; encode the message."""
+    from urllib.parse import quote
+    return quote(msg, safe="")
+
+
+@router.post("/settings/resume/import")
+async def import_resume(file: UploadFile = File(...)):
+    profile_name = state.active_profile()
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        return RedirectResponse(
+            url=f"/settings?resume_err={_urlencode_msg('Must be a .pdf file.')}",
+            status_code=303,
+        )
+    contents = await file.read()
+    lock = state.profile_lock(profile_name)
+    with lock:
+        try:
+            resume_data = _import_resume_from_bytes(profile_name, contents)
+        except ValueError as e:
+            return RedirectResponse(
+                url=f"/settings?resume_err={_urlencode_msg(str(e))}",
+                status_code=303,
+            )
+        except Exception as e:
+            return RedirectResponse(
+                url=f"/settings?resume_err={_urlencode_msg(f'Parse failed: {str(e)[:160]}')}",
+                status_code=303,
+            )
+    sections = resume_data.get("section_order", [])
+    proj_count = len(resume_data.get("projects", []))
+    msg = (
+        f"Resume imported · sections: {', '.join(sections)} · {proj_count} project(s). "
+        "Add more project PDFs below to grow the pool."
+    )
+    return RedirectResponse(url=f"/settings?resume_msg={_urlencode_msg(msg)}", status_code=303)
+
+
+@router.post("/settings/resume/projects/add")
+async def add_projects(file: UploadFile = File(...)):
+    profile_name = state.active_profile()
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        return RedirectResponse(
+            url=f"/settings?resume_err={_urlencode_msg('Must be a .pdf file.')}",
+            status_code=303,
+        )
+    contents = await file.read()
+    lock = state.profile_lock(profile_name)
+    with lock:
+        try:
+            result = _add_projects_from_bytes(profile_name, contents)
+        except FileNotFoundError as e:
+            return RedirectResponse(
+                url=f"/settings?resume_err={_urlencode_msg(str(e))}",
+                status_code=303,
+            )
+        except ValueError as e:
+            return RedirectResponse(
+                url=f"/settings?resume_err={_urlencode_msg(str(e))}",
+                status_code=303,
+            )
+        except Exception as e:
+            return RedirectResponse(
+                url=f"/settings?resume_err={_urlencode_msg(f'Parse failed: {str(e)[:160]}')}",
+                status_code=303,
+            )
+    if result["added"] == 0:
+        msg = "No new projects found — all names already in pool."
+    else:
+        msg = (
+            f"Added {result['added']} project(s): {', '.join(result['added_names'])}. "
+            f"Pool now has {result['total']} total."
+        )
+    return RedirectResponse(url=f"/settings?resume_msg={_urlencode_msg(msg)}", status_code=303)
 
 
 @router.post("/settings/profile")

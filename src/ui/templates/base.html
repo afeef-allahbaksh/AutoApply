@@ -523,7 +523,11 @@
       <div class="wordmark">AutoApply<span class="accent">.</span></div>
 
       <div class="profile-row">
-        <span class="section-label">Profile</span>
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.25rem;">
+          <span class="section-label">Profile</span>
+          <a href="/setup" style="font-size: 11px; color: var(--accent); text-decoration: none;"
+             title="Create a new profile">+ New</a>
+        </div>
         <form method="post" action="/profile">
           <select name="name" class="profile-select" onchange="this.form.submit()">
             {% for p in profiles %}
@@ -538,9 +542,7 @@
         <a href="/jobs" class="nav-item {% if current_path == '/jobs' %}active{% endif %}">Jobs</a>
         <a href="/applications" class="nav-item {% if current_path == '/applications' %}active{% endif %}">Applications</a>
         <a href="/companies" class="nav-item {% if current_path == '/companies' %}active{% endif %}">Companies</a>
-        <a href="/cold-email" class="nav-item {% if current_path == '/cold-email' %}active{% endif %}">
-          Cold email <span class="v2-tag">v2</span>
-        </a>
+        <a href="/cold-email" class="nav-item {% if current_path == '/cold-email' %}active{% endif %}">Cold email</a>
         <a href="/settings" class="nav-item {% if current_path == '/settings' %}active{% endif %}">Settings</a>
       </nav>
 

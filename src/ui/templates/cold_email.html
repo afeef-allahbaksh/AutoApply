@@ -1,13 +1,212 @@
 {% extends "base.html" %}
-{% block content %}
-<div style="max-width: 580px;">
-  <h2 style="font-size: 28px; margin: 0 0 0.75rem 0; line-height: 1.15;">A composer, a tracker, and Gmail ingestion.</h2>
-  <p style="color: var(--ink-muted); font-size: 15px; line-height: 1.7; margin: 0 0 1.5rem 0;">
-    Send tailored cold emails to hiring managers, watch for replies in your inbox, and roll the
-    responses back into the applications pipeline. Reserved for v2 — this slot exists to make
-    the route explicit, not to suggest the feature is half-built.
-  </p>
-  <hr class="rule">
-  <p class="section-label" style="margin-top: 1.5rem;">Status — coming soon</p>
+{% block header_actions %}
+<div style="display: inline-flex; gap: 0.5rem; align-items: center;">
+  <button class="btn-ghost" type="button"
+          onclick="document.getElementById('bulk-import').style.display='block'; document.getElementById('new-outreach').style.display='none';">
+    Bulk import
+  </button>
+  <button class="btn-primary" type="button"
+          onclick="document.getElementById('new-outreach').style.display='block'; document.getElementById('bulk-import').style.display='none'; document.querySelector('#new-outreach input[name=contact_name]').focus();">
+    + New outreach
+  </button>
 </div>
+{% endblock %}
+
+{% block content %}
+<div id="bulk-import" class="glass-card" style="padding: 1.5rem; margin-bottom: 1.5rem; display: none;">
+  <div class="section-label" style="margin-bottom: 0.5rem;">Bulk import (CSV or tab-separated)</div>
+  <p style="font-size: 12.5px; color: var(--ink-muted); margin: 0 0 0.875rem 0;">
+    Paste rows below — one outreach per line. Columns:
+    <code class="mono" style="font-size: 11px;">name, email, title, company, domain, context</code>.
+    First row can be a header or skip it. Tab-separated (paste from a spreadsheet) also works.
+    Required: <strong>name</strong> + <strong>company</strong>; everything else optional.
+  </p>
+  <form hx-post="/cold-email/bulk-import"
+        hx-target="#cold-email-content"
+        hx-swap="outerHTML"
+        hx-on::after-request="if (event.detail.successful) { this.reset(); document.getElementById('bulk-import').style.display='none'; }"
+        style="display: flex; flex-direction: column; gap: 0.75rem;">
+    <textarea class="pill-input" name="csv_text" rows="6" required
+              style="width: 100%; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px;"
+              placeholder="Jane Smith, jane@anthropic.com, Engineer, Anthropic, anthropic.com, met at conf
+John Doe, , PM, Stripe, stripe.com, leads platform team"></textarea>
+    <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+      <button type="button" class="btn-ghost"
+              onclick="document.getElementById('bulk-import').style.display='none';">Cancel</button>
+      <button type="submit" class="btn-primary">Import rows</button>
+    </div>
+  </form>
+</div>
+
+<div id="new-outreach" class="glass-card" style="padding: 1.5rem; margin-bottom: 1.5rem; display: none;">
+  <div class="section-label" style="margin-bottom: 0.875rem;">New outreach</div>
+  <form hx-post="/cold-email"
+        hx-target="#cold-email-content"
+        hx-swap="outerHTML"
+        hx-on::after-request="if (event.detail.successful) { this.reset(); document.getElementById('new-outreach').style.display='none'; document.querySelector('header.page-head button.btn-primary').style.display='inline-flex'; }"
+        style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.875rem;">
+    <div>
+      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Company</label>
+      <input class="pill-input" name="company" required list="company-suggestions"
+             placeholder="Company name" style="width: 100%;">
+      <datalist id="company-suggestions">
+        {% for c in companies %}<option value="{{ c.name }}">{% endfor %}
+      </datalist>
+    </div>
+    <div>
+      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Contact name</label>
+      <input class="pill-input" name="contact_name" required placeholder="Jane Smith" style="width: 100%;">
+    </div>
+    <div>
+      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Contact email <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(needed to send)</span></label>
+      <input class="pill-input" name="contact_email" type="email" placeholder="jane@company.com" style="width: 100%;">
+      <div class="email-suggestions" style="margin-top: 0.375rem;"></div>
+    </div>
+    <div>
+      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Company domain <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(for email guess — e.g. anthropic.com)</span></label>
+      <input class="pill-input" name="company_domain" placeholder="anthropic.com" style="width: 100%;">
+    </div>
+    <div>
+      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Contact title <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional)</span></label>
+      <input class="pill-input" name="contact_title" placeholder="Engineering Manager" style="width: 100%;">
+    </div>
+    <div style="grid-column: span 2;">
+      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">For which job? <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional — the JD becomes context for the generator)</span></label>
+      <select class="pill-select" name="linked_job_idx" style="width: 100%;">
+        <option value="">— none —</option>
+        {% for company_name, company_jobs in jobs_by_company %}
+          <optgroup label="{{ company_name }}">
+            {% for j in company_jobs %}
+              <option value="{{ j._idx }}">{{ j.title }}{% if j.location %} · {{ j.location }}{% endif %}</option>
+            {% endfor %}
+          </optgroup>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div style="grid-column: span 2;">
+      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Why this person? <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(context for the generator — what you know about them, why you're reaching out)</span></label>
+      <textarea class="pill-input" name="context_notes" rows="3"
+                placeholder="Met at a conf, leads the team I want to join, shipped X, etc." style="width: 100%;"></textarea>
+    </div>
+    <div style="grid-column: span 2; display: flex; gap: 0.5rem; justify-content: flex-end;">
+      <button type="button" class="btn-ghost"
+              onclick="document.getElementById('new-outreach').style.display='none'; document.querySelector('header.page-head button.btn-primary').style.display='inline-flex';">Cancel</button>
+      <button type="submit" class="btn-primary">Save outreach</button>
+    </div>
+  </form>
+</div>
+
+{% include "_cold_email_main.html" %}
+
+<style>
+  .email-suggestions { display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; }
+  .email-suggestions:empty { display: none; }
+  .email-suggestions .es-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--ink-soft); margin-right: 0.25rem;
+  }
+  .email-suggestions .es-chip {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 11px; padding: 0.1875rem 0.5rem;
+    border: 1px solid var(--rule); border-radius: 999px;
+    background: var(--canvas-raised); color: var(--ink);
+    cursor: pointer; transition: background var(--duration) var(--ease), border-color var(--duration) var(--ease);
+  }
+  .email-suggestions .es-chip:hover {
+    background: var(--accent-tint); border-color: var(--accent);
+  }
+</style>
+
+<script>
+(function() {
+  // Generate likely email patterns from a "Firstname Lastname" string and a
+  // domain. Returns [] if we don't have enough to work with.
+  function suggestEmails(fullName, domain) {
+    if (!fullName || !domain) return [];
+    const cleaned = String(fullName).trim().toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')  // strip accents
+      .replace(/[^a-z\s'-]/g, '').replace(/\s+/g, ' ').trim();
+    const parts = cleaned.split(' ').filter(p => p.length > 0);
+    if (parts.length < 2) return [];
+    const first = parts[0].replace(/[^a-z]/g, '');
+    const last = parts[parts.length - 1].replace(/[^a-z]/g, '');
+    if (!first || !last) return [];
+    const fi = first[0];
+    let d = String(domain).trim().toLowerCase()
+      .replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].trim();
+    if (!d) return [];
+    return [
+      `${first}.${last}@${d}`,
+      `${first}@${d}`,
+      `${fi}${last}@${d}`,
+      `${fi}.${last}@${d}`,
+      `${first}_${last}@${d}`,
+    ];
+  }
+
+  function renderChips(container, emails, emailInput) {
+    if (!container) return;
+    if (!emails.length) { container.innerHTML = ''; return; }
+    container.innerHTML = '';
+    const label = document.createElement('span');
+    label.className = 'es-label';
+    label.textContent = 'guesses:';
+    container.appendChild(label);
+    emails.forEach(em => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'es-chip';
+      btn.textContent = em;
+      btn.title = 'Click to use this address';
+      btn.addEventListener('click', () => {
+        if (emailInput) {
+          emailInput.value = em;
+          emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+          emailInput.focus();
+        }
+      });
+      container.appendChild(btn);
+    });
+  }
+
+  function update(scope) {
+    // `scope` is a form element. Look inside it for the relevant fields.
+    if (!scope) return;
+    const nameInput = scope.querySelector('[name="contact_name"]');
+    const domainInput = scope.querySelector('[name="company_domain"]');
+    const emailInput = scope.querySelector('[name="contact_email"]');
+    const container = scope.querySelector('.email-suggestions');
+    if (!domainInput || !emailInput || !container) return;
+    // Source for the name varies: new-outreach form has its own contact_name
+    // input; edit form does NOT (the name is on the record, not editable).
+    // For the edit form, fall back to the record's name embedded in the
+    // <summary> via a data attribute if available.
+    let name = nameInput ? nameInput.value : '';
+    if (!name) {
+      const details = scope.closest('details');
+      if (details) name = details.dataset.contactName || '';
+    }
+    renderChips(container, suggestEmails(name, domainInput.value), emailInput);
+  }
+
+  // Event delegation — handles both initial DOM and HTMX-swapped DOM.
+  document.addEventListener('input', (e) => {
+    const t = e.target;
+    if (t.matches('[name="contact_name"], [name="company_domain"]')) {
+      update(t.closest('form'));
+    }
+  });
+
+  // Initial render + post-swap rerender. htmx:load fires for both.
+  function initAll() {
+    document.querySelectorAll('form').forEach(f => {
+      if (f.querySelector('.email-suggestions')) update(f);
+    });
+  }
+  document.addEventListener('DOMContentLoaded', initAll);
+  document.addEventListener('htmx:load', initAll);
+  document.addEventListener('htmx:afterSwap', initAll);
+})();
+</script>
 {% endblock %}

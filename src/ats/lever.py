@@ -1,9 +1,16 @@
+"""Lever ATS form-filling.
+
+Single file (277 lines) — not worth splitting into a subpackage yet. If Lever
+grows comparably to Greenhouse, mirror the `greenhouse/` layout: fields,
+selectors, custom_questions, application.
+"""
 import time
 from pathlib import Path
 
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
 
 from src.api import create_message
+from src.ats.applicant_context import build_applicant_context
 
 # Selectors
 NAME = 'input[name="name"]'
@@ -59,9 +66,7 @@ def _answer_custom_question(
     responses: dict | None = None,
 ) -> str:
     """Use Claude to answer a custom question with full applicant context."""
-    # Reuse the same context builder from greenhouse handler
-    from src.ats_greenhouse import _build_applicant_context
-    context = _build_applicant_context(profile_data, resume_data, responses or {})
+    context = build_applicant_context(profile_data, resume_data, responses or {})
 
     message = create_message(
         model="claude-sonnet-4-20250514",
@@ -117,7 +122,6 @@ def _handle_custom_fields(
     answered = []
     standard_names = {"name", "email", "phone", "org", "resume", "urls", "comments"}
 
-    # Find all visible inputs and textareas that aren't standard fields
     for tag in ("input", "textarea"):
         elements = page.locator(f"{tag}:visible").all()
         for el in elements:
@@ -130,7 +134,6 @@ def _handle_custom_fields(
                 if "url" in name.lower() and ("linkedin" in name.lower() or "github" in name.lower()):
                     continue
 
-                # Get label text
                 el_id = el.get_attribute("id") or ""
                 label_el = page.locator(f'label[for="{el_id}"]') if el_id else None
                 if label_el and label_el.count() > 0:
@@ -142,7 +145,6 @@ def _handle_custom_fields(
                 if not label_text:
                     continue
 
-                # Check canned responses
                 answer = None
                 method = "canned"
                 label_lower = label_text.lower()
@@ -207,21 +209,18 @@ def fill_lever_application(
                 result["error"] = "Application form did not load"
                 return result
 
-        # Fill standard fields
         field_map = [
             (NAME, profile_data.get("name", ""), "name"),
             (EMAIL, profile_data.get("email", ""), "email"),
             (PHONE, profile_data.get("phone", ""), "phone"),
         ]
 
-        # LinkedIn
         linkedin = profile_data.get("linkedin", "")
         if linkedin:
             if not linkedin.startswith("http"):
                 linkedin = f"https://linkedin.com/in/{linkedin}"
             field_map.append((LINKEDIN_URL, linkedin, "linkedin"))
 
-        # GitHub
         github = profile_data.get("github", "")
         if github:
             if not github.startswith("http"):
@@ -232,7 +231,6 @@ def fill_lever_application(
             if value and _fill_if_exists(page, selector, value):
                 result["fields_filled"].append(name)
 
-        # Upload resume — set_input_files works on hidden inputs without clicking
         if resume_path and Path(resume_path).exists():
             resume_selectors = [
                 RESUME_UPLOAD,
@@ -248,7 +246,6 @@ def fill_lever_application(
         # or "additional information" field, not a generic "how did you hear about us" textarea
         comments_el = page.locator(COMMENTS)
         if comments_el.count() > 0 and resume_data:
-            # Check the label to make sure it's appropriate for a cover letter
             label_text = ""
             try:
                 label_el = page.locator('label[for="comments"], label:has-text("Additional")')
@@ -256,14 +253,12 @@ def fill_lever_application(
                     label_text = label_el.first.inner_text().strip().lower()
             except Exception:
                 pass
-            # Only fill if the label suggests additional info / cover letter, or if no label found (default Lever behavior)
             if not label_text or any(kw in label_text for kw in ("additional", "cover", "comments", "anything else")):
                 from src.cover_letter import generate_cover_letter
                 cover = generate_cover_letter(profile_data, resume_data, company, role, job_content)
                 comments_el.first.fill(cover)
                 result["fields_filled"].append("cover_letter")
 
-        # Handle custom questions — pass full resume data for intelligent answering
         result["custom_answers"] = _handle_custom_fields(
             page, responses, job_content, profile_data,
             resume_data=resume_data,

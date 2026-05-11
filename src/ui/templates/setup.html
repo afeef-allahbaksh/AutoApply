@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="max-width: 880px;">
+  <div style="margin-bottom: 1.75rem;">
+    <h1 style="font-size: 28px; margin-bottom: 0.375rem;">Set up your profile</h1>
+    <p style="color: var(--ink-muted); font-size: 14px; margin: 0;">
+      Tell us who you are and what you're looking for. You can come back to
+      <a href="/settings" style="color: var(--accent); text-decoration: underline;">Settings</a>
+      anytime to import a resume, connect your inbox, or change preferences.
+    </p>
+  </div>
+
+  {% if msg %}<div class="badge badge-success" style="display: block; padding: 0.5rem 0.875rem; margin-bottom: 1rem;">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="badge badge-danger" style="display: block; padding: 0.5rem 0.875rem; margin-bottom: 1rem;">{{ err }}</div>{% endif %}
+
+  {% if existing_profiles %}
+    <div class="glass-card" style="padding: 1rem 1.25rem; margin-bottom: 1.5rem;">
+      <div class="section-label" style="margin-bottom: 0.5rem;">Existing profiles</div>
+      <div style="font-size: 13px; color: var(--ink-muted);">
+        You already have {{ existing_profiles | length }} profile{% if existing_profiles | length != 1 %}s{% endif %} on disk:
+        {% for p in existing_profiles %}<span class="mono">{{ p }}</span>{% if not loop.last %}, {% endif %}{% endfor %}.
+        Submitting this form with one of those names overwrites it.
+      </div>
+    </div>
+  {% endif %}
+
+  <form method="post" action="/setup" enctype="multipart/form-data" style="display: flex; flex-direction: column; gap: 1.5rem;">
+
+    {# Section 1: Profile identity #}
+    <div class="glass-card" style="padding: 1.5rem;">
+      <div class="section-label" style="margin-bottom: 0.875rem;">Profile identity</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.875rem;">
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Profile slug</label>
+          <input class="pill-input" name="profile_name" required placeholder="e.g. jane_smith" style="width: 100%;">
+          <p style="font-size: 11px; color: var(--ink-muted); margin-top: 0.25rem;">
+            Lowercase, underscores. Becomes the directory name under <code class="mono">profiles/</code>.
+          </p>
+        </div>
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Full name</label>
+          <input class="pill-input" name="name" required placeholder="Jane Smith" style="width: 100%;">
+        </div>
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Email</label>
+          <input class="pill-input" name="email" type="email" required placeholder="jane@example.com" style="width: 100%;">
+        </div>
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Phone</label>
+          <input class="pill-input" name="phone" required placeholder="+1 555 555 5555" style="width: 100%;">
+        </div>
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Location</label>
+          <input class="pill-input" name="location" required placeholder="Philadelphia, PA" style="width: 100%;">
+        </div>
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">LinkedIn handle <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional)</span></label>
+          <input class="pill-input" name="linkedin" placeholder="janesmith" style="width: 100%;">
+        </div>
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">GitHub username <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional)</span></label>
+          <input class="pill-input" name="github" placeholder="janesmith" style="width: 100%;">
+        </div>
+      </div>
+    </div>
+
+    {# Section 2: Job preferences #}
+    <div class="glass-card" style="padding: 1.5rem;">
+      <div class="section-label" style="margin-bottom: 0.875rem;">Job preferences</div>
+      <div style="display: flex; flex-direction: column; gap: 0.875rem;">
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Target roles (comma-separated)</label>
+          <textarea class="pill-input" name="roles" required rows="2" placeholder="Software Engineer, New Grad SWE" style="width: 100%;"></textarea>
+          <label style="display: inline-flex; gap: 0.375rem; align-items: center; font-size: 11px; color: var(--ink-muted); margin-top: 0.375rem;">
+            <input type="checkbox" name="expand" value="1" checked>
+            Expand keywords via Claude (recommended — adds level / variant terms like "Junior SWE", "SDE I", etc. ~$0.005)
+          </label>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.875rem;">
+          <div>
+            <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Experience levels</label>
+            <input class="pill-input" name="experience_levels" required placeholder="entry-level, new grad" style="width: 100%;">
+          </div>
+          <div>
+            <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Locations</label>
+            <input class="pill-input" name="locations" required placeholder="Remote, New York, San Francisco" style="width: 100%;">
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.875rem;">
+          <div>
+            <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Minimum salary ($) <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional)</span></label>
+            <input class="pill-input" name="salary_min" type="number" min="0" placeholder="80000" style="width: 100%;">
+          </div>
+          <div>
+            <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Industries <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional)</span></label>
+            <input class="pill-input" name="industries" placeholder="AI, Tech, SaaS" style="width: 100%;">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# Section 3: Application settings #}
+    <div class="glass-card" style="padding: 1.5rem;">
+      <div class="section-label" style="margin-bottom: 0.875rem;">Application settings</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.875rem; align-items: end;">
+        <div>
+          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Seconds to wait between submissions</label>
+          <input class="pill-input" name="rate_limit_seconds" type="number" min="1" value="30" style="width: 100%;">
+        </div>
+        <div>
+          <label style="display: inline-flex; gap: 0.5rem; align-items: center;">
+            <input type="checkbox" name="auto_submit" value="1">
+            <span style="font-size: 13px;">Skip the per-job review prompt and submit automatically</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    {# Section 4: Resume (strongly recommended — needed for fit scoring + tailored resumes) #}
+    <div class="glass-card" style="padding: 1.5rem; border-left: 3px solid var(--accent);">
+      <div style="display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 0.5rem;">
+        <div class="section-label">Resume</div>
+        <span class="badge badge-warning" style="font-size: 10px;">strongly recommended</span>
+      </div>
+      <p style="font-size: 12.5px; color: var(--ink-muted); margin: 0 0 0.875rem 0; line-height: 1.55;">
+        Without a resume on file, fit scoring is skipped (every discovered job lands without a 1–5 score,
+        and the default Jobs filter at min-fit ≥ 3 will hide them all). The optimizer also has nothing
+        to tailor. You can skip this and add it later from <a href="/settings" style="color: var(--accent); text-decoration: underline;">Settings</a>,
+        but the system is meaningfully degraded until you do.
+      </p>
+      <div>
+        <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Resume PDF <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional, ≤10MB · parsed via Claude ~$0.01, adds 10–30s to setup)</span></label>
+        <input type="file" name="resume" accept="application/pdf"
+               style="font-size: 12.5px; color: var(--ink); padding: 0.25rem 0;">
+      </div>
+    </div>
+
+    {# Section 5: EEO responses #}
+    <div class="glass-card" style="padding: 1.5rem;">
+      <div class="section-label" style="margin-bottom: 0.5rem;">EEO &amp; canned responses</div>
+      <p style="font-size: 12px; color: var(--ink-muted); margin: 0 0 0.875rem 0;">
+        Optional — applied to common form fields when the wording matches. Leave blank to skip and add later from Settings.
+      </p>
+      <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+        {% for field, label, placeholder in [
+          ('work_authorization', 'Work authorization', 'Yes, I am authorized to work in the United States'),
+          ('visa_sponsorship', 'Visa sponsorship', 'No'),
+          ('gender', 'Gender', 'Prefer not to say'),
+          ('ethnicity', 'Ethnicity', 'Prefer not to say'),
+          ('veteran_status', 'Veteran status', 'I am not a veteran'),
+          ('disability', 'Disability status', 'Prefer not to say'),
+        ] %}
+          <div>
+            <label class="section-label" style="display: block; margin-bottom: 0.25rem;">{{ label }}</label>
+            <input class="pill-input" name="{{ field }}" placeholder="{{ placeholder }}" style="width: 100%;">
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 0.75rem; align-items: center;">
+      <button type="submit" class="btn-primary" style="padding: 0.625rem 1.25rem;">Create profile</button>
+      <span style="font-size: 12px; color: var(--ink-muted);">After saving, you'll be redirected to the dashboard. Add a resume from Settings.</span>
+    </div>
+  </form>
+</div>
+{% endblock %}

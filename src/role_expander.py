@@ -1,6 +1,6 @@
 import json
 
-from src.api import create_message
+from src.api import create_message, strip_code_fences
 
 EXPAND_PROMPT = """Given these target job roles, generate a comprehensive list of related job title keywords that a job seeker should also match against.
 
@@ -36,11 +36,7 @@ def expand_roles(roles: list[str], experience_levels: list[str]) -> list[str]:
         }],
     )
 
-    raw = message.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1]
-        raw = raw.rsplit("```", 1)[0]
-
+    raw = strip_code_fences(message.content[0].text)
     expanded = json.loads(raw)
 
     # Ensure the original roles are included
