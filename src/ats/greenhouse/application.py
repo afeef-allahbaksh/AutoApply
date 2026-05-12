@@ -87,9 +87,23 @@ def fill_greenhouse_application(
                 linkedin = f"https://linkedin.com/in/{linkedin}"
             field_map.append((LINKEDIN, linkedin, "linkedin"))
 
+        # Track which element ids got filled by the standard pass so the
+        # custom-question handler can skip them. Without this, a field like
+        # LinkedIn (`aria-label="LinkedIn Profile"` + `id="question_X"`) gets
+        # filled here, then the custom-question handler iterates the same
+        # `id^="question_"` element and calls Claude redundantly — wasting
+        # API calls and potentially overwriting the correct value.
+        filled_ids: set[str] = set()
         for selector, value, name in field_map:
-            if value and fill_if_exists(page, selector, value):
-                result["fields_filled"].append(name)
+            if not value or not fill_if_exists(page, selector, value):
+                continue
+            result["fields_filled"].append(name)
+            try:
+                elid = page.locator(selector).first.get_attribute("id") or ""
+                if elid:
+                    filled_ids.add(elid)
+            except Exception:
+                pass
 
         # Location — try regular input first, then React Select combobox
         location = profile_data.get("location", "")
@@ -107,7 +121,13 @@ def fill_greenhouse_application(
                             loc_el.fill("")
                             loc_el.type(location, delay=50)
                             time.sleep(1.0)
-                            option = page.locator('[role="option"]').first
+                            # Scope to .select__menu — see custom_questions.py for
+                            # why (intl-tel-input phone picker ambient options).
+                            menu = page.locator('.select__menu').first
+                            option = (
+                                menu.locator('[role="option"]').first
+                                if menu.count() > 0 else page.locator('[role="option"]').first
+                            )
                             if option.is_visible(timeout=1500):
                                 option.click()
                             else:
@@ -165,9 +185,11 @@ def fill_greenhouse_application(
         demo_filled, demo_ids = fill_demographics(page, responses)
         result["fields_filled"].extend(demo_filled)
 
+        # skip_ids = filled-by-standard-pass ∪ filled-by-demographics so the
+        # custom-question handler doesn't re-process either set.
         result["custom_answers"] = handle_custom_questions(
             page, responses, job_content, profile_data,
-            resume_data=resume_data, skip_ids=demo_ids,
+            resume_data=resume_data, skip_ids=filled_ids | demo_ids,
         )
 
         result["success"] = True

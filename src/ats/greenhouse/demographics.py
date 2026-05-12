@@ -62,11 +62,21 @@ def _select_decline_in_native(field) -> bool:
 
 def _fill_combobox_with_decline(page: Page, field, answer: str) -> bool:
     """Open a React Select combobox, pick canned answer if it matches an option,
-    otherwise pick a 'decline' option. Returns True if anything was selected."""
+    otherwise pick a 'decline' option. Returns True if anything was selected.
+
+    Scopes the `[role="option"]` query to `.select__menu` — the page may have
+    ambient `role="option"` elements from other widgets (e.g. the intl-tel-input
+    phone country picker renders 240+ options at page load) that would
+    otherwise poison the option list.
+    """
     try:
         field.click()
         time.sleep(0.4)
-        option_els = page.locator('[role="option"]').all()
+        menu = page.locator('.select__menu').first
+        if menu.count() == 0:
+            field.press("Escape")
+            return False
+        option_els = menu.locator('[role="option"]').all()
         option_labels = [o.inner_text().strip() for o in option_els if o.inner_text().strip()]
         if not option_labels:
             field.press("Escape")
@@ -89,7 +99,7 @@ def _fill_combobox_with_decline(page: Page, field, answer: str) -> bool:
             field.press("Escape")
             return False
 
-        for opt_el in page.locator('[role="option"]').all():
+        for opt_el in menu.locator('[role="option"]').all():
             try:
                 if opt_el.inner_text().strip() == target:
                     opt_el.click()
