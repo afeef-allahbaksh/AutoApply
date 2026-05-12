@@ -151,6 +151,18 @@ def _batch_apply_worker(
                 except prompt.PromptCancelled:
                     return "skip"
 
+            def verification_handler(email: str) -> str:
+                try:
+                    return prompt.ask(
+                        sf,
+                        f"Email verification needed — Greenhouse sent an 8-character code to {email}. "
+                        "Check your inbox, enter the 8 digits into the browser, then click Verified below.",
+                        choices=["verified", "skip"],
+                        poll_interval=0.5,
+                    )
+                except prompt.PromptCancelled:
+                    return "skip"
+
             def progress(**kw):
                 runner.write_status(sf, **kw)
 
@@ -188,6 +200,7 @@ def _batch_apply_worker(
                         i, total,
                         captcha_handler=captcha_handler,
                         submit_handler=submit_handler,
+                        verification_handler=verification_handler,
                         progress_callback=progress,
                     )
                     job_status = per_job_results[0]["status"] if per_job_results else "failed"

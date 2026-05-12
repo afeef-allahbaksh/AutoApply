@@ -1,5 +1,6 @@
 import json
 import random
+import re
 import time
 from datetime import date
 from pathlib import Path
@@ -12,6 +13,61 @@ from src.resume.optimizer import (
     _optimization_hash, _slugify, save_tailored_resume, select_projects,
 )
 from src.schemas import validate_applications
+
+
+def _handle_post_submit_verification(page, verification_handler, progress_callback) -> str:
+    """After a Submit click, detect Greenhouse's post-submit email verification
+    challenge and pause for the user. Returns the final status string.
+
+    Greenhouse rolls out an 8-character email verification step on some boards:
+    after Submit, the page shows `<fieldset id="email-verification">` with a
+    legend like "A verification code was sent to ___" and 8 single-char input
+    boxes. The application isn't accepted until the code is entered.
+
+    Returns:
+      'applied'         — no verification, or verification completed
+      'review_pending'  — verification skipped by user
+    """
+    verification = page.locator('#email-verification')
+    if verification.count() == 0:
+        return "applied"
+
+    # If no handler wired, we can't pause — record review_pending so the user
+    # knows this one didn't actually go through.
+    if verification_handler is None:
+        print("  Email verification detected but no handler wired — marking review_pending.")
+        return "review_pending"
+
+    legend_text = ""
+    try:
+        legend_text = verification.locator('legend').first.inner_text()
+    except Exception:
+        pass
+    m = re.search(r'sent to (\S+@\S+)', legend_text)
+    verify_email = m.group(1).rstrip('.') if m else "the email on the form"
+
+    print(f"  Email verification challenge — code sent to {verify_email}.")
+    if progress_callback is not None:
+        progress_callback(
+            phase="awaiting_verification",
+            message=f"Email verification needed — code sent to {verify_email}.",
+        )
+
+    verify_action = verification_handler(verify_email)
+    if verify_action != "verified":
+        print("  Verification skipped — recorded as review_pending.")
+        return "review_pending"
+
+    # User says they entered the code. Greenhouse may auto-submit once the 8th
+    # digit is filled (fieldset disappears) — or it may need another click.
+    time.sleep(2)
+    if page.locator('#email-verification').count() > 0:
+        submit_btn = page.locator('button:has-text("Submit")')
+        if submit_btn.count() > 0:
+            submit_btn.first.click()
+            time.sleep(3)
+    print("  Email verified, application resubmitted.")
+    return "applied"
 
 
 def _save_progress(profile_name: str, job: dict, fields_filled: list, custom_answers: list) -> str:
@@ -70,6 +126,7 @@ def _process_job(
     *,
     captcha_handler,
     submit_handler,
+    verification_handler=None,
     progress_callback=None,
 ) -> bool:
     """Process a single job. Returns True if the user wants to quit the apply loop.
@@ -233,7 +290,7 @@ def _process_job(
             submit_btn.first.click()
             time.sleep(3)
             print(f"  Submitted!")
-            status = "applied"
+            status = _handle_post_submit_verification(page, verification_handler, _progress)
         else:
             print(f"  Warning: Submit button not found")
             status = "failed"
@@ -251,7 +308,7 @@ def _process_job(
                 submit_btn.first.click()
                 time.sleep(3)
                 print(f"  Submitted!")
-                status = "applied"
+                status = _handle_post_submit_verification(page, verification_handler, _progress)
             else:
                 print(f"  Submit button not found")
                 status = "failed"

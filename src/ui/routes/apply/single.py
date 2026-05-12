@@ -174,6 +174,18 @@ def _apply_worker(profile_name: str, job_idx: int, dry_run: bool) -> None:
                 except prompt.PromptCancelled:
                     return "skip"
 
+            def verification_handler(email: str) -> str:
+                try:
+                    return prompt.ask(
+                        sf,
+                        f"Email verification needed — Greenhouse sent an 8-character code to {email}. "
+                        "Check your inbox, enter the 8 digits into the browser, then click Verified below.",
+                        choices=["verified", "skip"],
+                        poll_interval=0.5,
+                    )
+                except prompt.PromptCancelled:
+                    return "skip"
+
             def progress(**kw):
                 runner.write_status(sf, **kw)
 
@@ -192,6 +204,7 @@ def _apply_worker(profile_name: str, job_idx: int, dry_run: bool) -> None:
                 0, 1,  # single-job: i=0, total=1
                 captcha_handler=captcha_handler,
                 submit_handler=submit_handler,
+                verification_handler=verification_handler,
                 progress_callback=progress,
             )
             if results:
