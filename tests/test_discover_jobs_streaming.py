@@ -8,10 +8,10 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, "/Users/afeef/workspace/Projects/AutoApply")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.tasks import runner  # noqa: E402
 
-REPO = Path("/Users/afeef/workspace/Projects/AutoApply")
+REPO = Path(__file__).resolve().parent.parent
 PROFILES_DIR = REPO / "profiles"
 TEST_PROFILE = "_test_discover_jobs"
 TEST_DIR = PROFILES_DIR / TEST_PROFILE
