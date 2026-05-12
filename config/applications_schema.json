@@ -28,7 +28,7 @@
       },
       "ats": {
         "type": "string",
-        "enum": ["greenhouse", "lever"]
+        "enum": ["greenhouse", "lever", "ashby"]
       },
       "tailored_resume_path": {
         "type": "string"
