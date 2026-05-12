@@ -421,6 +421,56 @@ Top-level profile files (`profiles/{name}/*.json`):
 - Combobox `.select__menu` scoping in 4 other sites (demographics + education x2 + application.py)
 - `except Exception:` triage in `ats/greenhouse/` modules
 
+## Phase 36: `_process_job` decomposition
+
+*`src/applicant.py:_process_job` accreted to 240 lines / 17 params. Every recent fix landed inside it: Phase 27 added captcha+submit handlers, Phase 32 added i/total_jobs, this week added verification_handler + a `_handle_post_submit_verification` helper. The function was reachable but hostile to extending — splitting unlocks unit testability and makes the next bug fix tractable.*
+
+### Result
+- `_process_job` orchestrator: **87 lines** (was 230+)
+- 5 stage helpers, each 27-71 lines with one clear job
+- All 14 test suites still green (102 checks)
+- Each stage takes its own args explicitly — no shared mutable context object, signatures stay honest
+
+### Shipped — split into 5 focused helpers + orchestrator
+
+| Function | Responsibility | Returns |
+|---|---|---|
+| `_prepare_tailored_resume` | Find cached PDF or generate one via Claude (uses `find_cached_resume`, `select_projects`, `optimize_resume`, `save_tailored_resume`) | PDF path string (or `""` if no base resume) |
+| `_fill_with_captcha_retry` | ATS dispatch (`fill_greenhouse_application` / `fill_lever_application`) + CAPTCHA detection + one retry on CAPTCHA | `fill_result` dict |
+| `_record_failure_entry` | Save progress checkpoint + append failed entry to `applications.json` | None (writes) |
+| `_decide_submit_action` | Dry-run / auto-submit / prompt-and-submit decision; click; call `_handle_post_submit_verification`; return outcome | `(status: str, quit_loop: bool)` |
+| `_record_success_entry` | Append successful/skipped/review_pending entry to `applications.json` | None (writes) |
+| `_process_job` (orchestrator) | Compose the above. ~40 lines. | `bool` (quit signal) |
+
+### Why not split into a new package?
+
+`applicant.py` is ~300 lines total. Even after adding 4 new helpers, it stays around 350. The functions are tightly coupled (all about "apply to one job") — splitting into a package would force argument-passing across module boundaries for state that's naturally co-located. Defer the package split until the file actually approaches 600+.
+
+### Out of scope
+
+- Dataclass / context object for the shared args (handlers, progress callback, job). Each helper takes its own args explicitly — keeps signatures honest, easier to test.
+- Refactoring `_handle_post_submit_verification` itself — it's already well-factored from earlier in the session.
+
+## Phase 37: tests → `tests/` directory with pytest discovery
+
+*All 14 test suites and 102 individual checks live in `/tmp/test_*.py` today (per lesson #7 — keep tests separated from real profile data). The lesson was right about not putting test scripts that mutate state next to user data, but the cure ("put them outside the repo") made them invisible to CI/linting/any new contributor. Tests should be in `tests/` with `tmp_profile` fixtures that auto-cleanup.*
+
+### Plan
+
+- [ ] Add `pyproject.toml` (pytest + pythonpath config) — minimal, just enough to wire pytest discovery to the repo root
+- [ ] Create `tests/conftest.py` with shared fixtures: `tmp_profile_name` (per-test unique name), `tmp_profile_dir` (auto-rmtree), `fresh_page` (the Playwright MagicMock pattern), `wait_for_*` helpers
+- [ ] Move all 14 `/tmp/test_*.py` → `tests/test_*.py`
+- [ ] Strip the `sys.path.insert(0, "/Users/afeef/...")` boilerplate (pythonpath in pyproject.toml replaces it)
+- [ ] Use the conftest fixtures instead of local setup/teardown — cleaner test bodies
+- [ ] Add a `tests/README.md` explaining the fixture pattern (no real profile data ever touched, all tests use `_test_*` profile names that get cleaned up)
+- [ ] README.md: add a "Running the test suite" section (`pip install pytest && pytest`)
+- [ ] CLAUDE.md: update lesson #7 framing — the protection is the `tmp_profile` fixture pattern, not the directory location
+- [ ] Verify all 14 suites still pass under `pytest`
+
+### Why this matters for portfolio
+
+A reviewer evaluating the project will check: where are the tests? Today the answer is "in /tmp, you can't see them." That looks like there are no tests. After Phase 37, `pytest` finds 14 suites + ~110 checks in a clean `tests/` directory — that's a real signal.
+
 ## Future (v2+)
 - [ ] Ashby ATS support
 - [ ] Crunchbase / Apollo / Hunter.io for real company + contact discovery (current "Discover companies" only validates a curated seed list)
