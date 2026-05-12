@@ -30,7 +30,11 @@
   {% endif %}
 
   {% include "_email_proposals.html" %}
-  {% include "_app_kanban.html" %}
+  {% if view == 'timeline' %}
+    {% include "_app_timeline.html" %}
+  {% else %}
+    {% include "_app_kanban.html" %}
+  {% endif %}
 </div>
 
 <style>

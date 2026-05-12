@@ -4,15 +4,14 @@ import time
 from datetime import date
 from pathlib import Path
 
-from src.ats_greenhouse import fill_greenhouse_application
-from src.ats_lever import fill_lever_application
-from src.browser import get_browser_context
-from src.profile_loader import PROFILES_DIR, Profile, normalize_posting_url
-from src.resume_optimizer import (
-    batch_select_projects, find_cached_resume, optimize_resume,
+from src.ats.greenhouse import fill_greenhouse_application
+from src.ats.lever import fill_lever_application
+from src.profile_loader import PROFILES_DIR, normalize_posting_url
+from src.resume.optimizer import (
+    find_cached_resume, optimize_resume,
     _optimization_hash, _slugify, save_tailored_resume, select_projects,
 )
-from src.schemas import validate_applications, validate_resume
+from src.schemas import validate_applications
 
 
 def _save_progress(profile_name: str, job: dict, fields_filled: list, custom_answers: list) -> str:
@@ -64,119 +63,38 @@ def _take_screenshot(page, profile_name: str, company: str, role: str) -> str:
     return str(path)
 
 
-def apply_to_jobs(
-    profile: Profile,
-    jobs: list[dict],
-    resume_data: dict | None = None,
-    headless: bool = False,
-    dry_run: bool = False,
-) -> list[dict]:
-    """Apply to a list of jobs using the appropriate ATS handler.
-
-    Respects auto_submit and rate_limit_seconds from profile settings.
-    If dry_run=True, fills forms and takes screenshots but never submits.
-    Returns list of application result dicts.
-    """
-    auto_submit = profile.auto_submit if not dry_run else False
-    rate_limit = profile.rate_limit_seconds
-    applications = list(profile.applications)
-    results = []
-
-    # Validate resume once before the loop
-    if resume_data:
-        validate_resume(resume_data)
-
-    # Batch project selection for all jobs in one LLM call
-    project_selections = None
-    if resume_data and resume_data.get("project_pool") and len(resume_data["project_pool"]) > len(resume_data.get("projects", [])):
-        project_selections = batch_select_projects(resume_data, jobs)
-
-    # Pre-compute name slug for resume lookup
-    name_slug = _slugify(profile.data.get("name", ""))
-    resumes_dir = profile.profile_dir / "resumes"
-
-    state_path = profile.profile_dir / "browser_state.json"
-    pw, browser, context = get_browser_context(headless=headless, storage_state_path=state_path)
-    page = context.new_page()
-
-    try:
-        for i, job in enumerate(jobs):
-            company = job["company"]
-            role = job["title"]
-            posting_url = job["posting_url"]
-            ats = job.get("ats", "")
-
-            print(f"\n[{i + 1}/{len(jobs)}] {company} — {role}")
-
-            # Dedup check
-            if _is_already_applied(applications, company, role, posting_url):
-                print(f"  Skipped: already applied")
-                results.append({"company": company, "role": role, "status": "skipped"})
-                continue
-
-            try:
-                _quit_loop = _process_job(
-                    page, context, job, profile, resume_data, project_selections,
-                    applications, results, name_slug, resumes_dir,
-                    auto_submit, dry_run, rate_limit, i, len(jobs),
-                )
-                if _quit_loop:
-                    break
-            except Exception as e:
-                # Unexpected crash mid-job — log, screenshot, reset page, continue
-                print(f"  Crashed: {e}")
-                try:
-                    crash_shot = _take_screenshot(page, profile.profile_name, company, f"{role}_CRASHED")
-                    print(f"  Crash screenshot: {crash_shot}")
-                except Exception:
-                    pass
-
-                applications.append({
-                    "company": company, "role": role, "posting_url": posting_url,
-                    "date": date.today().isoformat(), "status": "failed",
-                    "ats": ats, "error": f"Unhandled: {e}",
-                    "status_updated_at": date.today().isoformat(),
-                    "source": "autoapply",
-                })
-                try:
-                    _save_applications(profile.profile_name, applications)
-                except (OSError, json.JSONDecodeError) as save_err:
-                    print(f"  Warning: failed to persist crash entry: {save_err}")
-                results.append({"company": company, "role": role, "status": "failed"})
-
-                # Reset page state for next job — fresh page if current is dead
-                try:
-                    page.goto("about:blank", timeout=5000)
-                except Exception:
-                    try:
-                        page = context.new_page()
-                    except Exception:
-                        pass
-
-    finally:
-        try:
-            context.storage_state(path=str(state_path))
-        except Exception as e:
-            print(f"  Warning: could not save browser state: {e}")
-        context.close()
-        browser.close()
-        pw.stop()
-
-    return results
-
-
 def _process_job(
     page, context, job, profile, resume_data, project_selections,
     applications, results, name_slug, resumes_dir,
     auto_submit, dry_run, rate_limit, i, total_jobs,
+    *,
+    captcha_handler,
+    submit_handler,
+    progress_callback=None,
 ) -> bool:
-    """Process a single job. Returns True if the user wants to quit the apply loop."""
+    """Process a single job. Returns True if the user wants to quit the apply loop.
+
+    `captcha_handler` / `submit_handler` are required — the UI wires them to
+    `src/tasks/prompt.py` so the worker blocks on the modal:
+      - captcha_handler() returns "continue" | "skip"
+      - submit_handler() returns "submit" | "skip" | "quit"
+
+    `progress_callback`: optional callable invoked at each phase with
+    keyword args (phase=..., message=..., **extra) so the UI status file
+    can stream progress. Does not replace print() — both fire.
+    """
+    def _progress(**kwargs):
+        if progress_callback is not None:
+            progress_callback(**kwargs)
+
     company = job["company"]
     role = job["title"]
     posting_url = job["posting_url"]
     ats = job.get("ats", "")
 
     # Find tailored resume PDF — generate one if it doesn't exist
+    _progress(phase="tailoring_resume", message="Checking for tailored resume…",
+              company=company, role=role)
     resume_path = ""
     if resumes_dir.exists():
         matching = sorted(resumes_dir.glob(f"{name_slug}_{_slugify(company)}*.pdf"), reverse=True)
@@ -219,6 +137,7 @@ def _process_job(
             print(f"  Warning: Could not generate tailored resume: {e}")
 
     # Fill the form
+    _progress(phase="filling_form", message=f"Filling {ats} application form…")
     if ats == "greenhouse":
         fill_result = fill_greenhouse_application(
             page=page, job_url=posting_url, profile_data=profile.data,
@@ -249,8 +168,10 @@ def _process_job(
         if "captcha" in page_text or "recaptcha" in page_text or "hcaptcha" in page_text:
             print(f"  CAPTCHA detected! Pausing for manual intervention.")
             print(f"  Solve the CAPTCHA in the browser, then press Enter to retry.")
-            try:
-                input("  Press Enter after solving CAPTCHA (or Ctrl+C to skip)...")
+            _progress(phase="captcha_pause",
+                      message="CAPTCHA detected — solve in the browser, then continue.")
+            action = captcha_handler()
+            if action == "continue":
                 fill_fn = fill_greenhouse_application if ats == "greenhouse" else fill_lever_application
                 fill_result = fill_fn(
                     page=page, job_url=posting_url, profile_data=profile.data,
@@ -258,7 +179,7 @@ def _process_job(
                     job_content=job.get("content", ""), resume_data=resume_data,
                     company=company, role=role,
                 )
-            except (EOFError, KeyboardInterrupt):
+            else:
                 print(f"  Skipping CAPTCHA'd application.")
 
         if not fill_result["success"]:
@@ -290,9 +211,13 @@ def _process_job(
 
     screenshot = _take_screenshot(page, profile.profile_name, company, role)
     print(f"  Screenshot: {screenshot}")
+    _progress(phase="screenshot_ready", message="Form filled. Review the screenshot.",
+              screenshot_path=screenshot)
 
     if dry_run:
         print(f"  [DRY RUN] Form filled — not submitting")
+        _progress(phase="dry_run_complete",
+                  message="Dry run complete — form filled, not submitted.")
         results.append({"company": company, "role": role, "status": "dry_run"})
         if i < total_jobs - 1:
             jitter = random.uniform(0.5, 1.5)
@@ -302,6 +227,7 @@ def _process_job(
         return False
 
     if auto_submit:
+        _progress(phase="submitting", message="Auto-submitting (auto_submit=on)…")
         submit_btn = page.locator('button:has-text("Submit")')
         if submit_btn.count() > 0:
             submit_btn.first.click()
@@ -314,12 +240,12 @@ def _process_job(
     else:
         print(f"  Paused for review (auto_submit is off)")
         print(f"  Review the screenshot and the form in the browser.")
-        try:
-            response = input("  Submit? (y/n/q): ").strip().lower()
-        except EOFError:
-            response = "n"
+        _progress(phase="awaiting_submit",
+                  message="Form filled. Submit, skip, or quit?")
+        action = submit_handler()
 
-        if response == "y":
+        if action == "submit":
+            _progress(phase="submitting", message="Clicking submit…")
             submit_btn = page.locator('button:has-text("Submit")')
             if submit_btn.count() > 0:
                 submit_btn.first.click()
@@ -329,7 +255,7 @@ def _process_job(
             else:
                 print(f"  Submit button not found")
                 status = "failed"
-        elif response == "q":
+        elif action == "quit":
             print("  Quitting apply loop.")
             status = "review_pending"
             applications.append({
@@ -342,7 +268,7 @@ def _process_job(
             _save_applications(profile.profile_name, applications)
             results.append({"company": company, "role": role, "status": status})
             return True
-        else:
+        else:  # "skip"
             print(f"  Skipped by user.")
             status = "skipped"
 
@@ -360,6 +286,8 @@ def _process_job(
     applications.append(app_entry)
     _save_applications(profile.profile_name, applications)
     results.append({"company": company, "role": role, "status": status})
+    _progress(phase="complete", message=f"Done · status={status}",
+              result_status=status, screenshot_path=screenshot)
 
     if i < total_jobs - 1:
         jitter = random.uniform(0.5, 1.5)

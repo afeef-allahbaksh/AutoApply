@@ -1,0 +1,97 @@
+<div id="apply-content"
+  {% if running_for_this_job or running_for_other_job %}hx-get="/jobs/{{ job_idx }}/apply/status" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+
+  {% if running_for_this_job %}
+    <div class="sync-banner sync-banner-running">
+      <span class="spinner"></span>
+      <span>{{ status.message or 'Applying…' }}</span>
+      {% if status.phase %}<span class="sync-progress">phase: {{ status.phase }}{% if status.dry_run %} · dry-run{% endif %}</span>{% endif %}
+      <form hx-post="/jobs/{{ job_idx }}/apply/cancel"
+            hx-target="#apply-content"
+            hx-swap="outerHTML"
+            style="margin-left: auto;">
+        <button type="submit" class="btn-ghost btn-sm"
+                {% if status.cancel_requested %}disabled{% endif %}>
+          {{ 'Cancelling…' if status.cancel_requested else 'Cancel' }}
+        </button>
+      </form>
+    </div>
+  {% elif running_for_other_job %}
+    <div class="sync-banner sync-banner-warning">
+      {% if status.mode == 'batch' %}
+        A batch apply is running ({{ (status.completed_results or [])|length }} of {{ (status.selected_indices or [])|length }} done).
+        <a href="/apply/batch" style="color: inherit; text-decoration: underline;">Open the batch page</a>
+        to watch it or cancel before starting this one.
+      {% else %}
+        Another apply task is running for
+        <a href="/jobs/{{ status.job_idx }}/apply" style="color: inherit; text-decoration: underline;">job {{ status.job_idx }} ({{ status.company or '?' }} — {{ status.role or '?' }})</a>.
+        Wait for it to finish or cancel it before starting this one.
+      {% endif %}
+    </div>
+  {% elif status.state == 'error' and status.job_idx == job_idx %}
+    <div class="sync-banner sync-banner-error">Apply failed: {{ status.error }}</div>
+  {% elif status.state == 'interrupted' and status.job_idx == job_idx %}
+    <div class="sync-banner sync-banner-warning">{{ status.message }}</div>
+  {% endif %}
+
+  {% if msg %}
+    <div class="badge badge-success" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ msg }}</div>
+  {% endif %}
+  {% if err %}
+    <div class="badge badge-danger" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ err }}</div>
+  {% endif %}
+
+  {% set post_url = "/jobs/" ~ job_idx ~ "/apply/prompt" %}
+  {% set hx_target = "#apply-content" %}
+  {% include "_apply_prompt.html" with context %}
+
+  {# Single-job screenshot — only when the status's job_idx matches this page. #}
+  {% if status.job_idx == job_idx %}
+    {% set screenshot_url = "/jobs/" ~ job_idx ~ "/apply/screenshot?ts=" ~ (status.completed_at or status.started_at or '') %}
+    {% include "_apply_screenshot.html" with context %}
+  {% endif %}
+
+  {# Terminal result card — shown when state is idle/cancelled/etc and this job has a result #}
+  {% if result_for_this_job %}
+    <div class="glass-card" style="padding: 1.25rem 1.5rem; margin-bottom: 1rem;">
+      <div style="display: flex; align-items: baseline; gap: 0.5rem;">
+        <div class="section-label">Result</div>
+        <span class="badge
+          {% if status.result_status == 'applied' %}badge-success
+          {% elif status.result_status == 'failed' %}badge-danger
+          {% elif status.result_status == 'dry_run' %}badge-info
+          {% else %}badge-neutral{% endif %}">
+          {{ status.result_status }}
+        </span>
+        <form hx-post="/jobs/{{ job_idx }}/apply/start"
+              hx-target="#apply-content"
+              hx-swap="outerHTML"
+              style="margin-left: auto; display: inline-flex; gap: 0.5rem; align-items: center;">
+          <label style="display: inline-flex; gap: 0.375rem; align-items: center; font-size: 12px; color: var(--ink-muted);">
+            <input type="checkbox" name="dry_run" value="1"> Dry run
+          </label>
+          <button type="submit" class="btn-ghost btn-sm">Re-run</button>
+        </form>
+      </div>
+      {% if status.message %}
+        <p style="margin: 0.625rem 0 0 0; font-size: 13px; color: var(--ink-muted);">{{ status.message }}</p>
+      {% endif %}
+    </div>
+  {% elif not (running_for_this_job or running_for_other_job) %}
+    <form hx-post="/jobs/{{ job_idx }}/apply/start"
+          hx-target="#apply-content"
+          hx-swap="outerHTML"
+          hx-indicator="#apply-spinner"
+          style="display: inline-flex; gap: 0.875rem; align-items: center;">
+      <button type="submit" class="btn-primary" hx-disabled-elt="this">Start apply</button>
+      <label style="display: inline-flex; gap: 0.375rem; align-items: center; font-size: 12px; color: var(--ink-muted);">
+        <input type="checkbox" name="dry_run" value="1"> Dry run (fill form, take screenshot, never submit)
+      </label>
+      <span id="apply-spinner" class="htmx-indicator spinner"></span>
+    </form>
+    <p style="margin: 0.875rem 0 0 0; font-size: 12px; color: var(--ink-muted);">
+      Opens a visible browser window. You'll be prompted on this page when the form is filled,
+      and again if a CAPTCHA appears. Auto-submit is always off for UI apply.
+    </p>
+  {% endif %}
+</div>

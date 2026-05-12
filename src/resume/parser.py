@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pdfplumber
 
-from src.api import create_message
+from src.api import create_message, strip_code_fences
 from src.schemas import validate_resume
 
 RESUME_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "config" / "resume_schema.json"
@@ -49,12 +49,7 @@ def parse_pdf_to_resume(pdf_path: str) -> dict:
         }],
     )
 
-    raw_json = message.content[0].text.strip()
-    # Strip markdown fences if present
-    if raw_json.startswith("```"):
-        raw_json = raw_json.split("\n", 1)[1]
-        raw_json = raw_json.rsplit("```", 1)[0]
-
+    raw_json = strip_code_fences(message.content[0].text)
     resume_data = json.loads(raw_json)
     validate_resume(resume_data)
     return resume_data

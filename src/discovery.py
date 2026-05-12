@@ -96,11 +96,27 @@ def _existing_slugs(companies: list) -> set:
     return {(c["ats"], c["slug"]) for c in companies}
 
 
-def discover_companies(profile_name: str, max_workers: int = 5) -> dict:
+def discover_companies(
+    profile_name: str,
+    max_workers: int = 5,
+    on_progress=None,
+    cancel_check=None,
+) -> dict:
     """Run company discovery from seed file. Merges with existing companies.json.
 
     Validates slugs in parallel for faster discovery.
-    Returns a summary dict with counts of added, skipped, failed slugs.
+
+    `on_progress` (optional): called as `on_progress(added=, skipped=, failed=,
+    processed=, total=)` whenever counts change. CLI callers pass nothing and
+    rely on the existing print() output; UI callers pass a writer that updates
+    a status file.
+
+    `cancel_check` (optional): called between completed futures. If it returns
+    True, the executor is shut down and in-progress validations are allowed to
+    finish but no new ones are started. Partial results are still saved.
+
+    Returns a summary dict with counts of added, skipped, failed, processed,
+    and the final total count in companies.json.
     """
     with open(SEED_PATH) as f:
         seeds = json.load(f)
@@ -111,23 +127,42 @@ def discover_companies(profile_name: str, max_workers: int = 5) -> dict:
     added = 0
     skipped = 0
     failed = 0
+    processed = 0
+    total = len(seeds)
+
+    def _emit():
+        if on_progress is not None:
+            on_progress(
+                added=added, skipped=skipped, failed=failed,
+                processed=processed, total=total,
+            )
 
     # Filter out already-known slugs
     to_validate = []
     for entry in seeds:
         if (entry["ats"], entry["slug"]) in known:
             skipped += 1
+            processed += 1
             print(f"  skip: {entry['slug']} ({entry['ats']}) — already in companies.json")
         else:
             to_validate.append(entry)
+    _emit()
 
     # Validate remaining slugs in parallel
+    cancelled = False
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
             pool.submit(validate_slug, entry["slug"], entry["ats"]): entry
             for entry in to_validate
         }
         for future in as_completed(futures):
+            if cancel_check is not None and cancel_check():
+                cancelled = True
+                # cancel_futures requires Python 3.9+. The currently-running
+                # validations still finish (their HTTP call is in flight), but
+                # no new ones start.
+                pool.shutdown(wait=False, cancel_futures=True)
+                break
             entry = futures[future]
             slug, ats = entry["slug"], entry["ats"]
             result = future.result()
@@ -139,7 +174,17 @@ def discover_companies(profile_name: str, max_workers: int = 5) -> dict:
             else:
                 failed += 1
                 print(f"  failed: {slug} ({ats}) — not found or no jobs")
+            processed += 1
+            _emit()
 
+    # Save whatever we got, even on cancel — partial discovery still useful.
     _save_companies(profile_name, existing)
 
-    return {"added": added, "skipped": skipped, "failed": failed, "total": len(existing)}
+    return {
+        "added": added,
+        "skipped": skipped,
+        "failed": failed,
+        "processed": processed,
+        "total": len(existing),
+        "cancelled": cancelled,
+    }

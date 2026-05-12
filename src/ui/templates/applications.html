@@ -25,9 +25,11 @@
     <a href="/settings" class="btn-ghost" title="Connect your inbox in Settings to enable sync"
        style="opacity: 0.55;">Sync inbox →</a>
   {% endif %}
+  {% if view != 'timeline' %}
   <button class="btn-secondary"
           type="button"
           onclick="document.getElementById('manual-add').style.display='block'; this.style.display='none'; document.querySelector('#manual-add input[name=company]').focus(); return false;">+ Add manual</button>
+  {% endif %}
 </div>
 {% endblock %}
 
@@ -302,10 +304,20 @@
   }
 </style>
 
+<div class="view-toggle" style="display: inline-flex; gap: 0.25rem; align-items: center; background: var(--canvas-raised); border: 1px solid var(--rule); border-radius: 999px; padding: 0.25rem; margin-bottom: 1rem;">
+  <a href="/applications?view=kanban{% if q %}&q={{ q|urlencode }}{% endif %}"
+     class="btn-sm {% if view != 'timeline' %}btn-primary{% else %}btn-ghost{% endif %}"
+     style="border-radius: 999px;">Kanban</a>
+  <a href="/applications?view=timeline{% if q %}&q={{ q|urlencode }}{% endif %}"
+     class="btn-sm {% if view == 'timeline' %}btn-primary{% else %}btn-ghost{% endif %}"
+     style="border-radius: 999px;">Timeline</a>
+</div>
+
 <div class="kanban-toolbar">
   <form method="get" action="/applications" class="kanban-search" style="display: flex; gap: 0.5rem; align-items: center;">
+    <input type="hidden" name="view" value="{{ view }}">
     <input class="pill-input" name="q" placeholder="Filter company or role…" value="{{ q }}" style="flex: 1;">
-    {% if q %}<a href="/applications" class="text-link" style="font-size: 12px;">clear</a>{% endif %}
+    {% if q %}<a href="/applications?view={{ view }}" class="text-link" style="font-size: 12px;">clear</a>{% endif %}
   </form>
   {% set total_count = (columns|map(attribute='__len__'))|map('call')|sum if false else (columns.applied|length + columns.screen|length + columns.technical|length + columns.onsite|length + columns.offer|length + columns.rejected|length + closed|length) %}
   {% set in_pipeline = columns.screen|length + columns.technical|length + columns.onsite|length %}

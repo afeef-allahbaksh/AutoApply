@@ -1,6 +1,9 @@
-from fastapi import APIRouter, HTTPException, Request
+import json
 
-from src.profile_loader import Profile
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse
+
+from src.profile_loader import PROFILES_DIR, Profile
 
 from .. import state
 from ..deps import template_context
@@ -51,23 +54,83 @@ def _metrics_for(profile_name: str) -> dict:
     }
 
 
+def _profile_summary_for(profile_name: str) -> dict:
+    """Compact profile config readout — parity with the CLI `status` output
+    (name, roles, locations, auto-submit, applications count) plus a couple of
+    workspace counts that the CLI didn't show but are useful at a glance."""
+    if not profile_name:
+        return {}
+    try:
+        profile = Profile(profile_name)
+    except FileNotFoundError:
+        return {}
+
+    prefs = profile.job_preferences or {}
+
+    def _safe_count(filename: str) -> int:
+        path = profile.profile_dir / filename
+        if not path.exists() or path.stat().st_size == 0:
+            return 0
+        try:
+            with open(path) as f:
+                return len(json.load(f))
+        except (json.JSONDecodeError, OSError):
+            return 0
+
+    return {
+        "name": profile.data.get("name") or profile_name,
+        "slug": profile_name,
+        "roles": prefs.get("roles", []),
+        "locations": prefs.get("locations", []),
+        "experience_levels": prefs.get("experience_levels", []),
+        "auto_submit": profile.auto_submit,
+        "rate_limit_seconds": profile.rate_limit_seconds,
+        "applications_count": len(list(profile.applications)),
+        "companies_count": _safe_count("companies.json"),
+        "jobs_count": _safe_count("jobs.json"),
+    }
+
+
 @router.get("/")
-def dashboard(request: Request):
-    metrics = _metrics_for(state.active_profile())
+def dashboard(request: Request, setup_msg: str = ""):
+    profile_name = state.active_profile()
+    # First-visit redirect: no profile exists OR active profile is missing its
+    # profile.json on disk. The setup wizard creates one.
+    if not profile_name or not (PROFILES_DIR / profile_name / "profile.json").exists():
+        return RedirectResponse(url="/setup", status_code=303)
+    metrics = _metrics_for(profile_name)
+    profile_summary = _profile_summary_for(profile_name)
+    from .pipeline import _read_pipeline_status
+    pipeline_status = _read_pipeline_status(profile_name)
+    resume_missing = not (PROFILES_DIR / profile_name / "resume.json").exists()
     return templates.TemplateResponse(
         request, "dashboard.html",
         template_context(
             request, page_title="Dashboard",
             metrics=metrics,
+            profile_summary=profile_summary,
             status_badge_class=STATUS_BADGE_CLASS,
+            pipeline_status=pipeline_status,
+            pipeline_running=pipeline_status.get("state") == "running",
+            pipeline_msg="",
+            pipeline_err="",
+            resume_missing=resume_missing,
+            setup_msg=setup_msg,
         ),
     )
 
 
 @router.get("/_metrics")
 def metrics_partial(request: Request):
-    metrics = _metrics_for(state.active_profile())
+    profile_name = state.active_profile()
+    metrics = _metrics_for(profile_name)
+    profile_summary = _profile_summary_for(profile_name)
     return templates.TemplateResponse(
         request, "_metrics.html",
-        {"request": request, "metrics": metrics, "status_badge_class": STATUS_BADGE_CLASS},
+        {
+            "request": request,
+            "metrics": metrics,
+            "profile_summary": profile_summary,
+            "status_badge_class": STATUS_BADGE_CLASS,
+        },
     )

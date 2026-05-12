@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block header_actions %}
+<a href="/jobs" class="btn-ghost">← Back to jobs</a>
+{% endblock %}
+
+{% block content %}
+<div class="glass-card" style="padding: 1.25rem 1.5rem; margin-bottom: 1.5rem;">
+  <div class="section-label">Batch apply</div>
+  <h2 style="margin: 0.25rem 0 0.5rem; font-size: 18px;">
+    Applying to multiple jobs in one Playwright session
+  </h2>
+  <div style="font-size: 13px; color: var(--ink-muted);">
+    The browser opens once and stays open across all selected jobs. You'll be prompted on this page when each form is filled,
+    and again if a CAPTCHA appears. Choose <strong>quit</strong> on any prompt to stop the rest of the batch.
+  </div>
+</div>
+
+{% include "_batch_apply_main.html" %}
+{% endblock %}

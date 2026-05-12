@@ -1,0 +1,123 @@
+{# Batch apply main partial — progress bar, per-job results list, shared
+   prompt + screenshot includes for the currently-executing job.
+   Polls /apply/batch/status every 2s while running. #}
+<div id="apply-content"
+  {% if is_batch_running %}hx-get="/apply/batch/status" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+
+  {% set results = status.completed_results or [] %}
+  {% set selected = status.selected_indices or [] %}
+  {% set total = selected|length %}
+  {% set done = results|length %}
+
+  {% if is_batch_running %}
+    <div class="sync-banner sync-banner-running">
+      <span class="spinner"></span>
+      <span>{{ status.message or 'Applying…' }}</span>
+      <span class="sync-progress">
+        {{ done }} / {{ total }}{% if status.phase %} · phase: {{ status.phase }}{% endif %}{% if status.dry_run %} · dry-run{% endif %}
+      </span>
+      <form hx-post="/apply/batch/cancel"
+            hx-target="#apply-content"
+            hx-swap="outerHTML"
+            style="margin-left: auto;">
+        <button type="submit" class="btn-ghost btn-sm"
+                {% if status.cancel_requested %}disabled{% endif %}>
+          {{ 'Cancelling…' if status.cancel_requested else 'Cancel' }}
+        </button>
+      </form>
+    </div>
+  {% elif status.state == 'error' and status.mode == 'batch' %}
+    <div class="sync-banner sync-banner-error">Batch apply failed: {{ status.error }}</div>
+  {% elif status.state == 'interrupted' and status.mode == 'batch' %}
+    <div class="sync-banner sync-banner-warning">{{ status.message }}</div>
+  {% endif %}
+
+  {% if msg %}
+    <div class="badge badge-success" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ msg }}</div>
+  {% endif %}
+  {% if err %}
+    <div class="badge badge-danger" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ err }}</div>
+  {% endif %}
+
+  {% if status.mode == 'batch' and total > 0 %}
+    <div class="glass-card" style="padding: 1.25rem 1.5rem; margin-bottom: 1rem;">
+      <div style="display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.875rem;">
+        <div class="section-label">Progress</div>
+        <span style="margin-left: auto; font-size: 12px; color: var(--ink-muted); font-feature-settings: 'tnum;';">
+          {{ done }} / {{ total }} processed
+          {% if is_batch_running and status.current_index is not none %}
+            · on job {{ (status.current_index or 0) + 1 }}
+          {% endif %}
+        </span>
+      </div>
+      <div style="height: 6px; background: var(--surface-sunken); border-radius: 999px; overflow: hidden; margin-bottom: 1rem;">
+        <div style="height: 100%; width: {{ (100 * done / total) if total else 0 }}%; background: var(--accent); transition: width 0.3s ease;"></div>
+      </div>
+
+      {% if results %}
+        <table class="app-table" style="margin: 0;">
+          <thead>
+            <tr>
+              <th style="width: 36px;">#</th>
+              <th>Company</th>
+              <th>Role</th>
+              <th style="text-align: right;">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in results %}
+              <tr>
+                <td style="color: var(--ink-muted); font-feature-settings: 'tnum';">{{ loop.index }}</td>
+                <td style="font-weight: 500;">{{ r.company }}</td>
+                <td style="color: var(--ink-muted); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ r.role }}">{{ r.role }}</td>
+                <td style="text-align: right;">
+                  <span class="badge
+                    {% if r.status == 'applied' %}badge-success
+                    {% elif r.status == 'failed' %}badge-danger
+                    {% elif r.status == 'dry_run' %}badge-info
+                    {% else %}badge-neutral{% endif %}">
+                    {{ r.status }}
+                  </span>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {# Shared prompt-modal — pending only when a batch is running, which already
+     gates pending_prompt in _batch_flags. #}
+  {% set post_url = "/apply/batch/prompt" %}
+  {% set hx_target = "#apply-content" %}
+  {% include "_apply_prompt.html" with context %}
+
+  {# Shared screenshot — only during a batch run (status.screenshot_path is set
+     by _process_job's progress_callback). #}
+  {% if status.mode == 'batch' %}
+    {% set screenshot_url = "/apply/batch/screenshot?ts=" ~ (status.completed_at or status.started_at or '') %}
+    {% include "_apply_screenshot.html" with context %}
+  {% endif %}
+
+  {% if has_batch_result %}
+    <div class="glass-card" style="padding: 1.25rem 1.5rem; margin-bottom: 1rem;">
+      <div class="section-label">Batch result</div>
+      <p style="margin: 0.5rem 0 0; font-size: 14px; color: var(--ink);">{{ status.message }}</p>
+      <p style="margin: 0.5rem 0 0; font-size: 12px; color: var(--ink-muted);">
+        Re-select jobs on the
+        <a href="/jobs" style="color: var(--accent); text-decoration: underline;">Jobs page</a>
+        to run another batch.
+      </p>
+    </div>
+  {% elif not is_batch_running %}
+    <div class="glass-card" style="padding: 1.25rem 1.5rem;">
+      <p style="margin: 0; font-size: 14px; color: var(--ink);">No batch running.</p>
+      <p style="margin: 0.5rem 0 0; font-size: 12px; color: var(--ink-muted);">
+        Select jobs on the
+        <a href="/jobs" style="color: var(--accent); text-decoration: underline;">Jobs page</a>
+        and click <strong>Apply to selected</strong> to start a batch.
+      </p>
+    </div>
+  {% endif %}
+</div>

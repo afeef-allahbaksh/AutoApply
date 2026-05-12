@@ -1,25 +1,75 @@
-<div style="display: flex; align-items: baseline; justify-content: space-between; padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--rule);">
-  <div class="section-label">{{ rows|length }} of {{ total }} jobs match</div>
-</div>
-<table class="app-table">
-  <thead>
-    <tr>
-      <th>Company</th>
-      <th>Role</th>
-      <th>Location</th>
-      <th>Fit</th>
-      <th>Relevance</th>
-      <th>ATS</th>
-      <th>Posting</th>
-      <th style="text-align: right;">Action</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for row in rows %}
-      {% include "_job_row.html" %}
-    {% endfor %}
-  </tbody>
-</table>
+<form id="batch-apply-form" method="post" action="/apply/batch/start">
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--rule);">
+    <div class="section-label">{{ rows|length }} of {{ total }} jobs match</div>
+    <div style="display: inline-flex; gap: 0.875rem; align-items: center;">
+      <label style="display: inline-flex; gap: 0.375rem; align-items: center; font-size: 12px; color: var(--ink-muted);">
+        <input type="checkbox" name="dry_run" value="1"> Dry run
+      </label>
+      <button type="submit" class="btn-primary btn-sm"
+              id="batch-apply-btn"
+              disabled
+              title="Select jobs with the checkboxes to enable">
+        Apply to selected (<span id="batch-apply-count">0</span>)
+      </button>
+    </div>
+  </div>
+  <table class="app-table">
+    <thead>
+      <tr>
+        <th style="width: 32px;">
+          <input type="checkbox"
+                 id="batch-select-all"
+                 class="header-checkbox"
+                 aria-label="Select all visible jobs">
+        </th>
+        <th>Company</th>
+        <th>Role</th>
+        <th>Location</th>
+        <th>Fit</th>
+        <th>Relevance</th>
+        <th>ATS</th>
+        <th>Posting</th>
+        <th style="text-align: right;">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        {% include "_job_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+</form>
 {% if not rows %}
   <p style="padding: 1.5rem; color: var(--ink-muted);">No jobs match the filters — try lowering Min fit or running Refresh.</p>
 {% endif %}
+
+<script>
+  // Local to this partial — wires batch-apply checkbox state without HTMX deps.
+  // Re-runs on each HTMX swap because this script tag re-executes on insert.
+  (function() {
+    const form = document.getElementById('batch-apply-form');
+    if (!form) return;
+    const selectAll = form.querySelector('#batch-select-all');
+    const btn = form.querySelector('#batch-apply-btn');
+    const count = form.querySelector('#batch-apply-count');
+    const boxes = () => form.querySelectorAll('input[type=checkbox][name=job_indices]');
+    function refresh() {
+      const checked = Array.from(boxes()).filter(b => b.checked).length;
+      count.textContent = checked;
+      btn.disabled = checked === 0;
+      btn.title = checked === 0 ? 'Select jobs with the checkboxes to enable' : `Apply to ${checked} selected job(s)`;
+      if (selectAll) {
+        const total = boxes().length;
+        selectAll.checked = total > 0 && checked === total;
+        selectAll.indeterminate = checked > 0 && checked < total;
+      }
+    }
+    form.addEventListener('change', (e) => {
+      if (e.target === selectAll) {
+        boxes().forEach(b => { b.checked = selectAll.checked; });
+      }
+      refresh();
+    });
+    refresh();
+  })();
+</script>

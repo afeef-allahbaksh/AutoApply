@@ -7,7 +7,6 @@ entire batch to finish.
 """
 import json
 import re
-import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -15,6 +14,7 @@ from src.inbox import auth, classify, fetch, keyword_classify, matcher
 from src.inbox.fetch import _chunked
 from src.profile_loader import Profile
 from src.schemas import validate_inbox_state, validate_proposals
+from src.tasks import runner
 
 INITIAL_LOOKBACK_DAYS = 365
 DEFAULT_MAX_MESSAGES = 1000
@@ -73,58 +73,31 @@ def status_path(profile_name: str) -> Path:
     return auth.imap_dir(profile_name) / "sync_status.json"
 
 
-def _read_status_raw(profile_name: str) -> dict:
-    """Internal: read status file as-is, no liveness check. Used by writers."""
-    p = status_path(profile_name)
-    if not p.exists():
-        return {}
-    try:
-        with open(p) as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return {}
+def _task_key(profile_name: str) -> str:
+    return f"inbox-sync:{profile_name}"
 
 
 def read_sync_status(profile_name: str) -> dict:
-    """Public: status with stale-detection. If the file says running but no
-    live worker thread exists in this process (e.g. uvicorn restarted mid-sync),
-    surface that as `interrupted` so the UI can stop polling."""
-    data = _read_status_raw(profile_name)
-    if not data:
-        return {"state": "idle"}
-    if data.get("state") == "running":
-        with _thread_registry_lock:
-            t = _active_threads.get(profile_name)
-            if t is None or not t.is_alive():
-                return {
-                    **data,
-                    "state": "interrupted",
-                    "message": "Sync interrupted (worker stopped). Click Sync to retry.",
-                }
-    return data
+    """Status with stale-detection. If the file says running but no live worker
+    thread exists in this process (e.g. uvicorn restarted mid-sync), surface
+    that as `interrupted` so the UI can stop polling."""
+    return runner.read_status(
+        status_path(profile_name),
+        _task_key(profile_name),
+        interrupted_message="Sync interrupted (worker stopped). Click Sync to retry.",
+    )
 
 
 def _write_sync_status(profile_name: str, **fields) -> None:
-    """Atomic read-modify-write. Tmp file + rename so a mid-write crash leaves
-    the previous status intact rather than a half-written JSON."""
-    current = _read_status_raw(profile_name)
-    current.update(fields)
-    p = status_path(profile_name)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".json.tmp")
-    with open(tmp, "w") as f:
-        json.dump(current, f, indent=2)
-        f.write("\n")
-    tmp.replace(p)
+    """Thin wrapper so progress-update sites in `_run_sync_streaming` keep their
+    original call signature."""
+    runner.write_status(status_path(profile_name), **fields)
 
 
 def request_cancel(profile_name: str) -> bool:
     """Flip the cancel flag. The worker checks this at every chunk boundary
     and exits cleanly (without committing state, so a re-sync resumes)."""
-    if _read_status_raw(profile_name).get("state") != "running":
-        return False
-    _write_sync_status(profile_name, cancel_requested=True, message="Cancelling…")
-    return True
+    return runner.request_cancel(status_path(profile_name))
 
 
 def load_state(profile_name: str) -> dict:
@@ -231,10 +204,6 @@ def _build_proposal(msg: dict, classified: dict, match: dict) -> dict:
     }
 
 
-_active_threads: dict[str, threading.Thread] = {}
-_thread_registry_lock = threading.Lock()
-
-
 def start_background_sync(profile_name: str, deep: bool = False, classifier: str = "llm") -> tuple[bool, str]:
     """Spawn a daemon thread that runs the sync to completion.
 
@@ -243,74 +212,37 @@ def start_background_sync(profile_name: str, deep: bool = False, classifier: str
     """
     if classifier not in ("llm", "keyword"):
         return False, f"Unknown classifier: {classifier}"
-    with _thread_registry_lock:
-        existing = _active_threads.get(profile_name)
-        if existing is not None and existing.is_alive():
-            return False, "Sync already in progress for this profile."
-        # Drop dead Thread references so the dict doesn't accumulate over weeks.
-        if existing is not None:
-            _active_threads.pop(profile_name, None)
-        # Write the initial running status synchronously *before* starting the
-        # thread. Without this, the response that just spawned the worker can
-        # render before the worker has written its first status update — the
-        # banner wouldn't appear until the next poll.
-        _write_sync_status(
-            profile_name,
-            state="running",
-            deep=deep,
-            classifier=classifier,
-            started_at=datetime.now(timezone.utc).isoformat(),
-            completed_at=None,
-            messages_seen=0,
-            after_prefilter=0,
-            classified=0,
-            new_proposals=0,
-            error=None,
-            cancel_requested=False,
-            message="Connecting to inbox…",
-        )
-        t = threading.Thread(
-            target=_sync_worker,
-            args=(profile_name, deep, classifier),
-            daemon=True,
-            name=f"inbox-sync-{profile_name}",
-        )
-        _active_threads[profile_name] = t
-        t.start()
-    return True, "Sync started."
+    started, msg = runner.start_task(
+        task_key=_task_key(profile_name),
+        status_file=status_path(profile_name),
+        target=_sync_worker,
+        args=(profile_name, deep, classifier),
+        initial_status={
+            "deep": deep,
+            "classifier": classifier,
+            "messages_seen": 0,
+            "after_prefilter": 0,
+            "classified": 0,
+            "new_proposals": 0,
+            "message": "Connecting to inbox…",
+        },
+        thread_name=f"inbox-sync-{profile_name}",
+        already_running_msg="Sync already in progress for this profile.",
+    )
+    return started, ("Sync started." if started else msg)
 
 
 def _sync_worker(profile_name: str, deep: bool, classifier: str = "llm") -> None:
-    """Outer wrapper for the background thread — runs the pipeline, traps errors,
-    normalizes terminal state (idle / cancelled / error)."""
-    try:
-        _run_sync_streaming(profile_name, deep, classifier)
-        # Pipeline returned cleanly — check if it was a cancel-induced exit.
-        final = _read_status_raw(profile_name)
-        if final.get("cancel_requested"):
-            _write_sync_status(
-                profile_name,
-                state="cancelled",
-                completed_at=datetime.now(timezone.utc).isoformat(),
-                message="Sync cancelled. Re-click Sync to resume.",
-                cancel_requested=False,
-            )
-        else:
-            _write_sync_status(
-                profile_name,
-                state="idle",
-                completed_at=datetime.now(timezone.utc).isoformat(),
-                message="Sync complete.",
-            )
-    except Exception as e:  # noqa: BLE001 — top-of-thread catch-all is intentional
-        _write_sync_status(
-            profile_name,
-            state="error",
-            completed_at=datetime.now(timezone.utc).isoformat(),
-            error=str(e)[:240],
-            cancel_requested=False,
-        )
-        print(f"[inbox] sync worker crashed: {e}")
+    """Background thread target — runs the pipeline through the shared runner so
+    error traps and terminal-state normalization (idle / cancelled / error) are
+    consistent across task kinds."""
+    runner.run_with_terminal_status(
+        status_path(profile_name),
+        work=lambda: _run_sync_streaming(profile_name, deep, classifier),
+        idle_message="Sync complete.",
+        cancelled_message="Sync cancelled. Re-click Sync to resume.",
+        log_prefix="[inbox] sync",
+    )
 
 
 # Server-side IMAP filter for free mode — match anything in our keyword set
@@ -422,7 +354,7 @@ def _run_sync_streaming(profile_name: str, deep: bool, classifier: str = "llm") 
     for chunk in _chunked(survivors, CLASSIFY_CHUNK_SIZE):
         # Cooperative cancel — checked between chunks so we don't abort
         # mid-API-call. ~6-10s max latency before the worker exits.
-        if _read_status_raw(profile_name).get("cancel_requested"):
+        if runner.is_cancel_requested(status_path(profile_name)):
             cancelled = True
             print(f"[inbox] cancel requested at {classified_total}/{len(survivors)} classified")
             break

@@ -206,11 +206,179 @@
 - [x] `.btn-sm` modifier for compact inline actions
 - [x] `header-checkbox` class with `accent-color: var(--accent)` so checkboxes match the indigo palette
 
+## Phase 23: Shared Task Runner + Interactive Prompt Channel (Foundation)
+*Survey: `src/inbox/sync.py` already provides status_path / read_sync_status / request_cancel / start_background_sync / thread registry. Pattern is inbox-specific; generalize rather than copy. `src/ui/state.py` has profile_lock + active_profile env var. No existing prompt channel beyond inbox proposals queue.*
+
+- [x] Extract generic background-task module into `src/tasks/runner.py` — status file path, atomic tmp+rename writes, cancel flag, per-profile thread registry, stuck-state detection (`interrupted` when status says running but no live worker)
+- [x] Migrate `src/inbox/sync.py` to use the shared runner — preserve existing UI polling cadence, cancel button behavior, and `read_sync_status` semantics
+- [x] Build `src/tasks/prompt.py` — interactive prompt channel: worker writes `pending_prompt` (id/question/choices/screenshot_path/extra) to the task's status file via `ask()` and blocks polling for `prompt_response`; UI helpers `get_pending()` + `submit_response()` drive the round trip. Cancel and timeout both clear `pending_prompt` and raise `PromptCancelled` / `PromptTimeout`. 8/8 smoke tests pass
+- [ ] Generic "task needs your input" modal partial + FastAPI route — **deferred to Phase 27** when apply becomes the first real consumer (no speculative UI without a working end-to-end demo)
+- [x] Update CLAUDE.md — removed "CLI is the apply surface" Key Rule; flipped Project section to UI-first with migration framing; rewrote Background-tasks Architecture note to reference `src/tasks/runner.py`
+- [x] Update lessons.md — rewrote lesson #8 to scope it to inbox-driven changes only (the apply-stays-in-CLI part is replaced by the prompt-channel architecture in CLAUDE.md)
+
+## Phase 24: Migrate Read-Only / Compute Commands (Low Risk)
+- [x] `discover` (companies) — "Discover companies" button in Companies header → runs as background task via `src/tasks/runner.py` → streams progress to `profiles/{name}/discover_status.json` → UI polls `/companies/discover_status` every 4s; cancel + interrupted detection wired. `discover_companies()` gained optional `on_progress` and `cancel_check` callbacks; CLI signature is backwards-compatible (still called as `discover_companies(args.profile)` in main.py). 4/4 smoke tests pass
+- [x] `discover-jobs` background-task migration — `/jobs/refresh` was already calling `discover_jobs()` but synchronously, blocking the HTTP request for 30s–2min. Now it spawns a background task via `runner.start_task`, returns a `#jobs-content` partial with a streaming banner, and polls `/jobs/discover_status` every 4s. Phases reported: loading_companies → fetching (per-company) → filtering → classifying_country → classifying_level → dedup → scoring_fit → saving. Cancel-before-save leaves jobs.json untouched. `discover_jobs()` gained optional `on_progress` / `cancel_check` callbacks; CLI signature backwards-compatible. 4/4 smoke tests pass
+- [x] `status` — added a Profile summary card to the dashboard via `_profile_summary_for(profile_name)`. Shows name, target roles, locations, experience level, auto-submit toggle, and workspace counts (companies/jobs/applications). Lives inside the `/_metrics` polling block so settings changes from another tab reflect within 10s. CLI status parity reached (CLI prints 5 fields; dashboard now shows all 5 plus useful workspace counts)
+- [x] `history` — added Kanban/Timeline view toggle to `/applications` via `?view=` query param. Timeline is a read-only chronological table sorted by `status_updated_at` desc (falls back to `date`), with the same company/role search filter shared between views. `+ Add manual` button hidden in timeline view; manual edits/drag-and-drop only available in Kanban. Extracted `_enrich_and_filter` + `_sort_key` helpers in `src/ui/pipeline.py` so kanban_groups and the new `timeline_rows` share filtering logic
+
+## Phase 25: Long-Running Compute (Optimize + Pipeline)
+- [x] `optimize --job N` — per-row "Optimize" link on Jobs page → dedicated `/jobs/{idx}/optimize` page → background task via `src/tasks/runner.py`. Phases: loading → selecting_projects → cache_check → optimizing → saving → complete. One optimize at a time per profile (task key `optimize:{profile}`); the status file tracks `job_idx` so per-job pages differentiate "running for this job" / "running for another job" / "this job has a result". Diff displayed in a `<pre>` block; tailored PDF served via `/jobs/{idx}/optimize/pdf`. Re-run button works. CLI optimize signature untouched. 5/5 smoke tests pass
+- [x] `run` (full pipeline) — Dashboard "Run pipeline" header button → `POST /pipeline/start` chains `discover_companies` then `discover_jobs` in one shared `runner.start_task`. Single status file at `profiles/{name}/pipeline_status.json` with a `stage` field (`discover` / `discover_jobs` / `complete`) so the banner reports current step. Per-job optimize and apply remain individual `/jobs` row actions — the CLI's interactive multi-job pick + batch optimize/apply is deferred (lives in the per-row UI workflow instead). Cancel between stages tested. 4/4 smoke tests pass
+
+## Phase 26: File Upload Commands
+- [x] `import-resume` — Settings page "Resume" card with file upload → `POST /settings/resume/import` → `_import_resume_from_bytes` → existing `parse_pdf_to_resume()` → writes `resume.json`. 10MB cap, `.pdf`-only validation. Button label flips to "Re-import (overwrites)" when a resume already exists
+- [x] `add-projects` — adjacent file upload on same card → `POST /settings/resume/projects/add` → parses extra PDF and merges its projects into `project_pool` via name-dedup. Skips duplicates; reports added/skipped counts. Button disabled until full resume is imported. Both routes are foreground (parsing takes 10–30s with Claude); helpers `_import_resume_from_bytes` / `_add_projects_from_bytes` are pure-function so they unit-test without mocking `UploadFile`. 7/7 smoke tests pass
+
+## Phase 27: Apply (Uses Prompt Channel from Phase 23)
+- [x] `apply` and `apply --dry-run` from UI — `/jobs/{idx}/apply` page with Start button + Dry-run checkbox. Single job at a time (task key `apply:{profile}`, mirrors optimize). Phases reported: loading → dedup_check → opening_browser → tailoring_resume → filling_form → screenshot_ready → awaiting_submit → submitting → complete
+- [x] Submit confirmation modal — `submit_handler` callback wired through `src/tasks/prompt.py`. When the worker hits the decision point it calls `prompt.ask(sf, "Form filled. Review…", choices=["submit", "skip", "quit"])` and blocks. UI's `_apply_main.html` renders the modal with buttons that POST to `/jobs/{idx}/apply/prompt`. Quit response writes `status=review_pending` and exits (same as CLI behavior)
+- [x] CAPTCHA pause modal — `captcha_handler` callback wired through the same prompt channel. Worker pauses on `prompt.ask(sf, "CAPTCHA detected…", choices=["continue", "skip"])` when fill_result detects "captcha"/"recaptcha"/"hcaptcha" in the page text
+- [x] Live screenshot display — `_take_screenshot` path streams into the status file via `progress_callback(screenshot_path=...)`. UI renders `<img src="/jobs/{idx}/apply/screenshot">` whenever the status holds a screenshot
+- [x] Dedup short-circuit — duplicate check (composite key, URL-normalized) runs before the browser opens; duplicates produce `result_status="skipped"` and `phase="skipped_duplicate"` without touching Playwright
+- [x] Refactored `src/applicant._process_job` to accept optional `captcha_handler`, `submit_handler`, `progress_callback` kwargs. Default `_default_captcha_handler` and `_default_submit_handler` fall back to `input()` so CLI behavior is unchanged. 7/7 smoke tests pass
+- [ ] **Multi-job batch apply** — deferred to v2+. UI currently applies one job at a time (matches the optimize pattern and the review-each workflow). The CLI's "apply to N jobs in a loop" mode stays CLI-only for now
+- [ ] **Dupe-overwrite confirmation modal** — deferred to v2+. UI just skips duplicates today (same as CLI); explicit overwrite prompt can come later if needed
+- [ ] **Rate-limit countdown in UI** — deferred to v2+. Only relevant for multi-job batch mode
+
+## Phase 28: Setup Wizard
+- [x] Profile **delete** via Settings → Danger zone (`POST /profile/delete`). Requires typing the profile name into a confirm field (double-entry guard so a stray POST/replay can't nuke the wrong profile) + a JS `confirm()` on submit. Path-traversal guard via `Path.resolve()`. After delete, unsets `AUTOAPPLY_PROFILE` and bounces to `/`, which then either picks another profile or redirects to `/setup` if none remain. 5/5 smoke tests pass
+- [x] Single-page `/setup` form (chose this over a multi-step wizard because the CLI's prompts have no meaningful Next/Back and progressive sections cover the same UX in one screen). Sections: Profile identity (slug, name, email, phone, location, optional LinkedIn/GitHub) · Job preferences (roles + optional Claude expansion, levels, locations, optional salary/industries) · Application settings (auto_submit, rate_limit) · EEO responses (6 optional fields)
+- [x] First-visit redirect: `GET /` bounces to `/setup` when `state.active_profile()` returns empty OR the active profile's `profile.json` doesn't exist
+- [x] Profile slug munging: lowercase, spaces → underscores, strip punctuation (mirrors CLI's `name.replace(" ", "_").lower()`)
+- [x] Role expansion via Claude is opt-in via a checkbox (default ON to match CLI behavior)
+- [x] Resume import added to setup as an optional section with a `strongly recommended` badge — accepts `.pdf` via the form's new `multipart/form-data` enctype, parses synchronously via the Phase 26 helper (`_import_resume_from_bytes`). Skipping it is allowed but the dashboard then renders a warning banner ("No resume on file. Fit scoring is disabled until you import one…") that links straight to Settings. IMAP setup remains on Settings (already migrated in Phase 18)
+- [x] EEO responses are optional in setup; only non-empty values persisted, bad shapes silently skipped (user can fix on Settings)
+- [x] 7/7 smoke tests pass (slugify, GET /setup, POST happy path no-expand, POST with expand calls expand_roles, empty slug rejected, blank-after-CSV-split rejected, no-profile redirect)
+
+## Phase 29: Retire CLI Surface
+- [x] `main.py` rewritten as a 104-line launcher (down from 519). Flags: `--profile`, `--port`, `--host`, `--no-browser`. Env: `AUTOAPPLY_PROFILE`, `AUTOAPPLY_DEV=1` for uvicorn auto-reload. Auto-opens the dashboard in the user's browser (delayed 1s so uvicorn binds first)
+- [x] All `argparse` subcommands removed — there's no positional `command` argument anymore
+- [x] **Deleted** `src/setup.py` and `src/pipeline.py` (CLI-only modules)
+- [x] **Deleted** `apply_to_jobs` from `src/applicant.py` (~100 lines) + the stdin-backed default handlers (`_default_captcha_handler`, `_default_submit_handler`, ~20 lines). `_process_job` now requires `captcha_handler` and `submit_handler` kwargs so a stray caller can't silently fall back to terminal prompts
+- [x] Dead imports purged from `src/applicant.py` (`batch_select_projects`, `get_browser_context`, `Profile`, `validate_resume` no longer needed there)
+- [x] README rewritten — quick-start is now just `python main.py`; CLI command table replaced with a dashboard walkthrough; launcher flags documented
+- [x] CLAUDE.md updated — Project section flipped to "dashboard is the user surface"; UI module description no longer says "originally tracking-only"; the apply Key Rule rewritten around `_process_job`'s required handler kwargs; "Everything goes through CLI" rule rewritten to "through the dashboard"
+- [x] All 6 routes load against the live profile; main.py imports cleanly; `src.setup` and `src.pipeline` confirmed unimportable
+
+## Phase 30: Cold Outreach v2.1 — Manual Compose + Claude Drafts
+- [x] `src/cold_email.py` — `generate_outreach(profile, resume, company, contact_name, contact_title, context_notes, job_content)` → `{subject, body}`. Claude-tuned to 3-paragraph / ≤120-word body, scannable subject (≤8 words). JSON-shaped output so future v2.2 bulk path can call it identically. Hard fallback to a hand-written skeleton if Claude returns garbage — user always has something editable
+- [x] `src/ui/routes/cold_email.py` rewritten — CRUD routes (`POST /cold-email`, `POST /cold-email/{id}/generate|edit|status|delete`). Per-profile `outreach.json` with `id` (12-char uuid), company, contact name/email/title, context_notes, draft_subject, draft_body, status enum (`draft`/`sent`/`replied`/`no_reply`/`closed`), timestamps, `sent_at` stamped first time status flips to sent
+- [x] Gmail compose URL builder (`_gmail_compose_url`) — opens `mail.google.com/mail/?view=cm` prefilled with To/Subject/Body. User clicks Send themselves. **No SMTP in v2.1** (matches the read-only inbox stance for now; SMTP needs explicit opt-in)
+- [x] UI: `cold_email.html` + `_cold_email_main.html`. Header-bar `+ New outreach` toggles a create form (company input has a `<datalist>` autocomplete from `companies.json`). Records render as `<details>` cards — collapsed by default, expanded after generate/edit. In-card: contact details editor + subject/body textareas + `Save` / `✨ Generate` / `Open in Gmail ↗` / status dropdown / `Delete`
+- [x] Sidebar `v2` tag dropped from the Cold email nav entry (no longer a stub)
+- [x] **Direct SMTP send** (v2.5 shipped early — Gmail/IMAP-link UX was friction the user didn't want to live with). New `src/email_send.py` reuses the IMAP credentials stored in `profiles/{name}/imap/credentials.json` (same app password works for Gmail/Outlook/Yahoo SMTP). SMTP host derived from IMAP host (`imap.gmail.com` → `smtp.gmail.com`), port 587 STARTTLS. New `POST /cold-email/{rid}/send` route validates draft fields, calls send_email, flips status to `sent` + stamps `sent_at` on success; leaves record in draft state with inline error on failure. UI primary action is now "Send email" (with JS confirm showing recipient + sender's inbox address); "or open in Gmail" demoted to a small secondary link as a fallback for attachments / different-account sends. If inbox isn't connected, the button reads "Connect inbox to send →" and links to Settings instead. 7/7 smoke tests pass (host derivation, validation, no-inbox path, happy path with STARTTLS, auth failure messaging, route success updates status, route failure preserves state)
+- [x] **Job linking wired** — outreach records can now reference a job from `jobs.json` via `linked_job_idx`. Generate route fetches the linked job's content and passes it to the Claude generator (the JD becomes the primary personalization signal). Create + edit forms expose a `<select>` with `<optgroup>`s grouped by company. Invalid `linked_job_idx` values are rejected before save. Linked job label (`Senior SWE at Acme`) shown on the collapsed record card. 7/7 sub-checks pass (grouped lookup, persist as int, generate threads job_content, invalid-idx rejected, edit can clear, edit can switch, card label visible)
+- [x] 8/8 smoke tests pass (`/tmp/test_cold_email.py`): route registration, create+persist, generate threads inputs through to Claude stub, manual edit preserves content, status→sent stamps `sent_at` (and preserves it on subsequent transitions), Gmail URL URL-encodes special chars, delete removes from disk, generator fallback fires on bad Claude response
+
+## Phase 31: Code Review Pass (Post-Phase-30 Cleanup)
+- [x] **Fixed broken exception tuples** — `src/cold_email.py:117,239` had `except (json.JSONDecodeError, …, Exception)` which collapses to `except Exception:` (the catch-all subsumes the specifics, defeating intent and swallowing bugs). Replaced with narrow specific tuples
+- [x] **Extracted `strip_code_fences()`** to `src/api.py` — the inline pattern `if raw.startswith("\`\`\`"): raw = raw.split("\\n", 1)[1]; raw = raw.rsplit("\`\`\`", 1)[0]` was duplicated in **11 sites across 6 files** and silently crashed with IndexError when Claude returned a fence with no newline after the opener. Helper handles every edge case (no trailing fence, only-whitespace inside, ` ```json ` language tags, etc.)
+- [x] **Consolidated `_load_jobs`** — was defined identically in 4 route files (`jobs.py`, `optimize.py`, `apply.py`, `cold_email.py`). Moved to `src/ui/pipeline.py` as `load_jobs()` alongside `load_applications()`. Each route keeps a thin `_load_jobs = load_jobs` alias so call sites don't churn
+- [x] **Deleted `batch_select_projects`** in `src/resume_optimizer.py` (~95 lines including prompt) — was only called by the retired CLI batch-apply path. Replaced with a 6-line tombstone comment pointing future work at `batch_generate_outreach`'s pattern
+- [x] **Improved worker error logging** in `src/tasks/runner.py` — top-of-thread `except Exception` now `traceback.print_exc(file=sys.stderr)` for the full stack; the status file stays truncated to `str(e)[:240]` for the UI banner
+- [x] **Documentation sweep** — CLAUDE.md gained sections for the strip_code_fences helper, cold outreach architecture (cold_email + email_send), and shared route helpers. The IMAP-read-only key rule now correctly distinguishes inbound (read-only) from outbound (SMTP via explicit confirmation). README's dashboard walkthrough now lists Cold email as a feature. Stale v2+ "Cold email composer (sidebar slot reserved)" line removed (the feature shipped in Phase 30)
+- [x] All 13 test suites pass post-cleanup (81 individual checks). Caught and fixed a Phase-29 test regression — apply-flow tests had been written when `_process_job` had default handlers; now require explicit `captcha_handler` + `submit_handler` kwargs since the CLI fallback was removed
+
+## Phase 32: Multi-Job Batch Apply
+
+*Closes the README/reality gap — the pitch says "Apply to dozens of jobs in the time it takes to apply to one," and now the UI does. Reuses Phase 23/27 infrastructure end to end; `_process_job` was already loop-shaped from the start.*
+
+- [x] **Shared template fragments** — extracted `_apply_prompt.html` (pending-prompt modal) and `_apply_screenshot.html` (live form screenshot) so single and batch render the same modals via Jinja include + variable-set pattern (`post_url` / `hx_target` / `screenshot_url`)
+- [x] **`_batch_apply_worker`** in `src/ui/routes/apply.py` — `_partition_selected()` pre-filters duplicates (browser never opens for an all-dupes batch); one Playwright session loops `_process_job` per surviving index; quit/cancel breaks the loop and the cleanup pass marks every un-recorded selection as `not_attempted` (driven off `completed_results.idx` rather than the loop counter, so cancel-before-process and quit-after-process behave correctly)
+- [x] **`/apply/batch/*` routes** — start, page, status partial (2s polling), cancel, prompt, screenshot. Task key `apply:{profile}` shared with single-job apply; status file gains `mode` (`"single"` / `"batch"`), `selected_indices`, `current_index`, `completed_results`. Single-job page's `_flags()` treats any batch as "running for other" so prompt modals only surface in one place
+- [x] **Templates** — `_batch_apply_main.html` (progress bar, completed-results table, shared prompt + screenshot includes, idle-state copy) + `apply_batch.html` page wrapper. Single-job "running_for_other_job" banner reworked to point at `/apply/batch` when the running task is a batch
+- [x] **Jobs page selection UI** — checkbox column in `_job_row.html`, `<form id="batch-apply-form">` wrapping `_jobs_table.html`, header-row "Apply to selected (N)" primary button with Dry-run toggle, JS in the partial wires select-all + count + enabled-state and re-runs on every HTMX swap
+- [x] **Smoke tests** in `/tmp/test_batch_apply.py` — 7/7 passing: routes registered, partition splits dedup correctly, batch iterates in selection order with `current_index` increment, quit short-circuits + remaining marked not_attempted, cancel mid-batch preserves processed results, all-dupes never opens browser, single-job regression. Helpers `wait_for_new_pending(previous_id)` + `wait_for_completed_count(n)` plus a teardown that cancels stragglers handle the daemon-thread cross-test bleeding (`write_status` recreates `parent` with mkdir, so workers can resurrect rmtree'd paths)
+- [x] **TestClient render check** — 5/5 endpoints render cleanly (GET /jobs has the checkbox UI, GET /apply/batch shows idle state, POST /apply/batch/start with no selection surfaces the error, single-job page unchanged)
+- [x] **Regression check** — existing `/tmp/test_apply_migration.py` still 7/7 (schema `mode` addition didn't break single-job apply)
+- [x] **Docs** — CLAUDE.md apply key rule extended to cover both modes + shared task key + dedup pre-filter behavior; README's Jobs section mentions batch apply
+
+### Out of scope (deferred)
+- Per-job browser restart on hang/crash — recovery path is cancel + retry with un-applied subset selected
+- Stable application IDs — list indices work; batch worker reads jobs once at task start so a concurrent `jobs.json` reorder can't shuffle the run
+- Bulk `batch_select_projects` — `_process_job` calls `select_projects` per job today; per-job cost not yet a concern
+
+### Followups
+- A user opening `/jobs/{idx}/apply` for a job currently being processed inside a batch sees the "batch running" banner — correct, since prompts live on /apply/batch. The job-row "Apply" link still appears on /jobs even while a batch runs; clicking it lands on the per-job page which then shows the banner. Could disable the per-row Apply button while a batch is active, but it's not actively confusing — leaving as-is
+
+## Phase 33: Modularization — split god-modules into packages
+
+*Three of the largest files (`ats_greenhouse.py` 1096, `apply.py` 711, `job_discovery.py` 635) doing too many things. Split into packages with `__init__.py` re-exports — every external import still works. Python idiom here is module folders, not classes — pure-ish functions over a Playwright `page` or HTTP request, not stateful objects.*
+
+### Result
+
+- Largest src/ file is now 564 (`ui/routes/cold_email.py`, candidate for Phase 34)
+- No file over 600 lines (was 1096, 711, 635)
+- 14/14 smoke test suites green (+ patch paths updated for moved modules)
+
+### Splits shipped
+
+- [x] **`ats_greenhouse.py` → `src/ats/greenhouse/`** (1096 lines → 9 modules):
+  - `selectors.py` — `_wait_for_form`, `_fill_if_exists`, `_upload_if_exists`, `_normalize_words`, `_fuzzy_match_options`, `_select_option_fuzzy[_el]`
+  - `dates.py` — `_parse_date_parts`, `_try_select_date`
+  - `location.py` — `_fill_location_autocomplete`
+  - `education.py` — `_find_edu_section`, `_fill_education_section`
+  - `demographics.py` — `_is_decline_option`, `_demographic_key_for_label`, `_select_decline_in_native`, `_fill_combobox_with_decline`, `_fill_demographics`
+  - `custom_questions.py` — `_split_name`, `_build_applicant_context`, `_answer_custom_question`, `_answer_select_question`, `_get_question_text`, `_handle_custom_questions`
+  - `application.py` — `fill_greenhouse_application` (the orchestrator)
+  - `__init__.py` re-exports `fill_greenhouse_application`. `build_applicant_context` lifted to `src/ats/applicant_context.py` (shared with Lever) — cleaner than a per-package re-export since it's genuinely cross-ATS
+  - Moved `src/ats_lever.py` → `src/ats/lever.py` for consistency; updated `src/applicant.py` imports
+- [x] **`src/ui/routes/apply.py` → `src/ui/routes/apply/`** (711 lines → 4 modules):
+  - `shared.py` — path/key helpers (`_apply_status_path`, `_apply_task_key`), `_flags()`, `_partition_selected`, `_append_completed`, `_load_jobs` alias
+  - `single.py` — `_apply_worker`, 6 single-job routes (start, page, status partial, cancel, prompt, screenshot)
+  - `batch.py` — `_batch_apply_worker`, 6 batch routes
+  - `__init__.py` combines both routers via `include_router`, re-exports `_apply_worker`, `_batch_apply_worker`, `_partition_selected`, etc. so test imports keep working. Caveat documented: tests must patch `get_browser_context` at the submodule level (`single.py` / `batch.py`), not the package level — `mock.patch` rewrites a name in *one* module, not all imports of it
+- [x] **`job_discovery.py` → `src/jobs/`** (635 lines → 7 modules):
+  - `greenhouse.py` — `fetch_greenhouse_jobs`, Greenhouse-specific snippet extraction
+  - `lever.py` — `fetch_lever_jobs`
+  - `filter.py` — `score_job`, `_matches_any`, `_matches_location`, `filter_jobs`, `deduplicate_jobs`, `_extract_job_snippet`
+  - `classify.py` — `classify_jobs_by_level`, `classify_jobs_by_country`, `score_jobs_fit`
+  - `discover.py` — `discover_jobs`, `fetch_jobs_for_company` (orchestrator)
+  - Also lifted shared HTTP defaults into `clients/_http.py`. `clients/` is a sub-subpackage with `greenhouse.py` + `lever.py`. `__init__.py` re-exports `discover_jobs` + both fetchers
+- [x] Ran all 14 `/tmp/test_*.py` suites — green. One needed patch-path updates (`test_discover_jobs_streaming.py`) — patches now target `src.jobs.discover.fetch_greenhouse_jobs` etc.
+- [x] CLAUDE.md: added Architecture-note bullets for ATS package layout, Job discovery package, Apply route package. Fixed stale `apply_to_jobs` reference (Phase 29 deleted it). Updated `strip_code_fences` consumers list (`job_discovery` → `jobs/classify`)
+
+### Out of scope (Phase 34)
+- `src/ui/routes/cold_email.py` (564 lines) — needs business logic extracted to `src/outreach.py`. Touches the Send/Generate flows the user actively uses; better as a dedicated phase with browser-level verification.
+- `src/ui/routes/settings.py` (448 lines) — borderline; the page is one form so there's no clean per-concern split. Defer until / unless it grows further.
+
+## Phase 34: Outreach package + resume grouping
+
+*Two related "lift related files into a feature directory" splits. Outreach was the biggest god-route remaining (564 → 421); consolidating it with `src/cold_email.py` + `src/email_send.py` brought three scattered files into one `src/outreach/` feature directory. Resume grouping (4 top-level `resume_*.py` → `src/resume/`) was pure tidiness.*
+
+### Result
+
+- `src/ui/routes/cold_email.py`: 564 → 421 lines (thin route handler)
+- Top file in `src/` is now 452 (`inbox/sync.py`, deliberately not split — coherent and already in a package)
+- All 14 /tmp test suites green (102 individual checks)
+
+### Splits shipped
+
+- [x] **`src/outreach/`** — feature package consolidating three previously-scattered locations:
+  - `generator.py` ← `src/cold_email.py` (`generate_outreach` + `batch_generate_outreach`, unchanged)
+  - `sender.py` ← `src/email_send.py` (SMTP via inbox app password, unchanged)
+  - `store.py` — extracted `outreach_path` / `load_outreach` / `save_outreach` / `now_iso` + `STATUSES` / `STATUS_BADGE` constants from the route file. Dropped underscore prefixes since they're now package-public API
+  - `csv_import.py` — extracted `parse_csv_rows` from the route file (~75 lines)
+  - `gmail.py` — extracted `gmail_compose_url` + `clean_domain` from the route file
+  - `__init__.py` re-exports the public surface
+- [x] **`src/ui/routes/cold_email.py`** — slimmed to a thin route handler. All business logic now lives in `src.outreach`; route file is form-handling + lock acquisition + template rendering + HTTP-shaped errors only
+- [x] **`src/resume/`** — clean rename of the 4 top-level resume modules into a package; updated 5 call sites (applicant.py, ui/routes/{optimize,settings,apply/single,apply/batch}.py). One internal cross-import (`optimizer.py → renderer.py`) updated to new path
+- [x] **Test patches** — updated 3 test files (`test_cold_email.py`, `test_bulk_outreach.py`, `test_email_send.py`) to point at new module paths. Tests that directly imported underscore-prefixed helpers from the route file (`_load_outreach`, `_gmail_compose_url`, `_parse_csv_rows`) now import the renamed public versions via `from src.outreach import load_outreach as _load_outreach` (aliased to keep test internal naming stable)
+- [x] **Verification** — 14/14 test suites green, 65 routes register, smoke-imports clean
+- [x] **CLAUDE.md** — Cold outreach + Resume Architecture notes rewritten for the new package layouts
+
+### Out of scope
+- `src/ui/routes/settings.py` (448 lines, multi-concern but single form) — no clean per-concern split
+- `src/applicant.py` `_process_job` decomposition — function refactor, different exercise (Phase 35 candidate)
+- `src/inbox/sync.py` (452, in package already, coherent)
+
 ## Future (v2+)
 - [ ] Ashby ATS support
-- [ ] Crunchbase API for richer company discovery
+- [ ] Crunchbase / Apollo / Hunter.io for real company + contact discovery (current "Discover companies" only validates a curated seed list)
 - [ ] Workday support
-- [ ] Cold email composer + tracker (sidebar slot reserved)
+- [ ] Inbox classifier extension to auto-detect cold-outreach replies (v2.3 from the cold-outreach memory)
 - [ ] Stable application IDs instead of list indices (avoids two-tab drag race)
 - [ ] Background daemon mode for periodic inbox sync without dashboard open
 - [ ] Multi-account inbox (currently single IMAP account per profile)
+- [ ] Deployment shift — currently local-first / single-user / no auth; see `project_deployment_target.md` memory for the move-to-Vercel-or-similar blockers

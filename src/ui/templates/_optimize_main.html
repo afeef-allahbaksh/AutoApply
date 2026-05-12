@@ -1,0 +1,67 @@
+<div id="optimize-content"
+  {% if running_for_this_job or running_for_other_job %}hx-get="/jobs/{{ job_idx }}/optimize/status" hx-trigger="every 4s" hx-swap="outerHTML"{% endif %}>
+
+  {% if running_for_this_job %}
+    <div class="sync-banner sync-banner-running">
+      <span class="spinner"></span>
+      <span>{{ status.message or 'Tailoring resume…' }}</span>
+      {% if status.phase %}<span class="sync-progress">phase: {{ status.phase }}</span>{% endif %}
+      <form hx-post="/jobs/{{ job_idx }}/optimize/cancel"
+            hx-target="#optimize-content"
+            hx-swap="outerHTML"
+            style="margin-left: auto;">
+        <button type="submit" class="btn-ghost btn-sm"
+                {% if status.cancel_requested %}disabled{% endif %}>
+          {{ 'Cancelling…' if status.cancel_requested else 'Cancel' }}
+        </button>
+      </form>
+    </div>
+  {% elif running_for_other_job %}
+    <div class="sync-banner sync-banner-warning">
+      Another optimize task is running for
+      <a href="/jobs/{{ status.job_idx }}/optimize" style="color: inherit; text-decoration: underline;">job {{ status.job_idx }} ({{ status.company or '?' }} — {{ status.role or '?' }})</a>.
+      Wait for it to finish or cancel it before starting this one.
+    </div>
+  {% elif status.state == 'error' and status.job_idx == job_idx %}
+    <div class="sync-banner sync-banner-error">Optimize failed: {{ status.error }}</div>
+  {% elif status.state == 'interrupted' and status.job_idx == job_idx %}
+    <div class="sync-banner sync-banner-warning">{{ status.message }}</div>
+  {% endif %}
+
+  {% if msg %}
+    <div class="badge badge-success" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ msg }}</div>
+  {% endif %}
+  {% if err %}
+    <div class="badge badge-danger" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ err }}</div>
+  {% endif %}
+
+  {% if result_for_this_job %}
+    <div class="glass-card" style="padding: 1.25rem 1.5rem; margin-bottom: 1rem;">
+      <div style="display: flex; gap: 0.5rem; align-items: baseline; margin-bottom: 0.875rem;">
+        <div class="section-label">Tailored resume</div>
+        <span style="margin-left: auto; display: inline-flex; gap: 0.5rem;">
+          {% if status.pdf_path %}
+            <a href="/jobs/{{ job_idx }}/optimize/pdf" target="_blank" rel="noopener" class="btn-primary btn-sm">Open PDF ↗</a>
+          {% endif %}
+          <form hx-post="/jobs/{{ job_idx }}/optimize/start"
+                hx-target="#optimize-content"
+                hx-swap="outerHTML"
+                style="display: inline;">
+            <button type="submit" class="btn-ghost btn-sm">Re-run</button>
+          </form>
+        </span>
+      </div>
+      <pre style="background: var(--canvas-sunken); padding: 1rem; border-radius: var(--radius-md); overflow-x: auto; font-size: 12px; line-height: 1.5; font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: var(--ink); white-space: pre-wrap; max-height: 600px;">{{ status.diff }}</pre>
+    </div>
+  {% elif not (running_for_this_job or running_for_other_job) %}
+    <form hx-post="/jobs/{{ job_idx }}/optimize/start"
+          hx-target="#optimize-content"
+          hx-swap="outerHTML"
+          hx-indicator="#optimize-spinner"
+          style="display: inline-flex; gap: 0.5rem; align-items: center;">
+      <button type="submit" class="btn-primary" hx-disabled-elt="this">Start optimize</button>
+      <span id="optimize-spinner" class="htmx-indicator spinner"></span>
+      <span style="margin-left: 0.625rem; font-size: 12px; color: var(--ink-muted);">Typically 15-30s · ~$0.025 in Claude tokens</span>
+    </form>
+  {% endif %}
+</div>

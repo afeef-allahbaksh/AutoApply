@@ -1,7 +1,7 @@
 """Email classifier — Claude decides if a message is application-related and what it implies."""
 import json
 
-from src.api import create_message, reserve_input_tokens
+from src.api import create_message, reserve_input_tokens, strip_code_fences
 
 # Haiku — same accuracy on this binary-classification task as Sonnet, 4x cheaper.
 # Tier 1 input limit is 50K TPM; the global token bucket in api.py throttles
@@ -63,15 +63,7 @@ def _truncate(s: str, n: int) -> str:
 
 def _extract_json_array(text: str) -> list:
     """Strip optional code fences and parse a JSON array."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
-        if text.startswith("json"):
-            text = text[4:].strip()
-    return json.loads(text)
+    return json.loads(strip_code_fences(text))
 
 
 def classify_batch(messages: list[dict]) -> list[dict]:

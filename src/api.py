@@ -59,6 +59,33 @@ def reserve_input_tokens(tokens: int) -> None:
         time.sleep(sleep_for)
 
 
+def strip_code_fences(text: str) -> str:
+    """Strip optional ```…``` markdown fences from a Claude response.
+
+    Handles ` ``` `, ` ```json `, ` ```python `, etc. — and the edge cases the
+    original inline pattern silently crashed on (no newline after the opening
+    fence, no trailing close fence, only whitespace inside).
+
+    Returns the bare content between fences, stripped. If the input doesn't
+    start with a fence, returns the input stripped (unchanged shape).
+    """
+    raw = (text or "").strip()
+    if not raw.startswith("```"):
+        return raw
+    # Drop everything on the opening-fence line (handles ```json, ```python, etc.)
+    newline_idx = raw.find("\n")
+    if newline_idx == -1:
+        # Just a fence opener with no content — give up, return original
+        return raw
+    raw = raw[newline_idx + 1:]
+    # Drop the closing fence if present (otherwise leave the rest as-is)
+    if raw.endswith("```"):
+        raw = raw[:-3]
+    elif "\n```" in raw:
+        raw = raw.rsplit("\n```", 1)[0]
+    return raw.strip()
+
+
 def create_message(retries: int = 5, **kwargs) -> anthropic.types.Message:
     """Call client.messages.create with exponential backoff + jitter on transient errors.
 

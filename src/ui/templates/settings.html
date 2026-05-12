@@ -15,11 +15,11 @@
   {% if inbox_err %}<div class="badge badge-danger" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ inbox_err }}</div>{% endif %}
 
   <p style="font-size: 12.5px; color: var(--ink-muted); line-height: 1.6; margin: 0 0 1rem 0; max-width: 720px;">
-    Connect any IMAP-supporting mailbox so AutoApply can scrape application status updates locally.
+    Connect any IMAP-supporting mailbox so AutoApply can pick up application status updates from your inbox.
     <strong>Gmail:</strong> enable 2FA, then generate an app password at
     <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" style="color: var(--accent); border-bottom: 1px solid var(--rule-bold);">myaccount.google.com/apppasswords</a>
-    and paste it below. The password is stored on disk in <code class="mono">profiles/{name}/imap/credentials.json</code>
-    and gives full mailbox access — AutoApply only reads, but treat the file as a secret.
+    and paste it below. Your password is saved with this profile and gives full access to your mailbox —
+    AutoApply only reads, but treat it as a secret.
   </p>
 
   <form method="post" action="/settings/inbox/save"
@@ -57,6 +57,55 @@
   </form>
   {% if inbox.state == 'connected' %}
     <form id="inbox-disconnect" method="post" action="/settings/inbox/disconnect" style="display: none;"></form>
+  {% endif %}
+</div>
+
+<div class="glass-card" style="padding: 1.5rem; margin-bottom: 1.5rem;">
+  <div style="display: flex; align-items: baseline; gap: 1rem; margin-bottom: 0.875rem;">
+    <div class="section-label">Resume</div>
+    {% if resume_info.exists %}
+      <span class="badge badge-success">{{ resume_info.project_count }} project{% if resume_info.project_count != 1 %}s{% endif %} in pool</span>
+    {% else %}
+      <span class="badge badge-neutral">Not imported</span>
+    {% endif %}
+  </div>
+
+  {% if resume_msg %}<div class="badge badge-success" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ resume_msg }}</div>{% endif %}
+  {% if resume_err %}<div class="badge badge-danger" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ resume_err }}</div>{% endif %}
+
+  <p style="font-size: 12.5px; color: var(--ink-muted); line-height: 1.6; margin: 0 0 1rem 0; max-width: 720px;">
+    Upload your resume as a PDF. Claude reads it into the structured form the optimizer needs
+    (sections, bullets, projects). After the initial import, upload PDFs containing additional
+    projects to grow your <strong>project pool</strong> — the optimizer picks the best subset per
+    job while keeping your one-page format. Parsing usually takes 10–20 seconds per PDF.
+  </p>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; max-width: 720px;">
+    <form method="post" action="/settings/resume/import" enctype="multipart/form-data"
+          style="display: flex; flex-direction: column; gap: 0.5rem;">
+      <label class="section-label">Import full resume</label>
+      <input type="file" name="file" accept="application/pdf" required
+             style="font-size: 12.5px; color: var(--ink); padding: 0.25rem 0;">
+      <button type="submit" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 12.5px;">
+        {{ 'Re-import (overwrites)' if resume_info.exists else 'Import resume PDF' }}
+      </button>
+    </form>
+    <form method="post" action="/settings/resume/projects/add" enctype="multipart/form-data"
+          style="display: flex; flex-direction: column; gap: 0.5rem;">
+      <label class="section-label">Add projects from another PDF</label>
+      <input type="file" name="file" accept="application/pdf" required
+             {% if not resume_info.exists %}disabled{% endif %}
+             style="font-size: 12.5px; color: var(--ink); padding: 0.25rem 0;">
+      <button type="submit" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 12.5px;"
+              {% if not resume_info.exists %}disabled{% endif %}>Add projects</button>
+    </form>
+  </div>
+
+  {% if resume_info.exists %}
+    <p style="font-size: 11.5px; color: var(--ink-soft); margin: 0.875rem 0 0 0; max-width: 720px;">
+      Sections: {{ resume_info.sections | join(', ') if resume_info.sections else '—' }}.
+      Project pool: {{ resume_info.project_pool_names | join(', ') if resume_info.project_pool_names else '—' }}
+    </p>
   {% endif %}
 </div>
 
@@ -107,7 +156,7 @@
         <div>
           <label style="display: inline-flex; gap: 0.5rem; align-items: center;">
             <input type="checkbox" name="auto_submit" value="1" {% if profile.settings and profile.settings.auto_submit %}checked{% endif %}>
-            <span style="font-size: 13px;">Auto-submit (CLI apply only)</span>
+            <span style="font-size: 13px;">Skip the per-job review prompt and submit automatically</span>
           </label>
         </div>
       </div>
@@ -142,4 +191,32 @@
   </div>
 
 </div>
+
+{# Danger zone — destructive profile operations live here so they aren't
+   reachable accidentally from the sidebar. #}
+{% if active_profile_name %}
+<div class="glass-card" style="padding: 1.5rem; margin-top: 1.5rem; border: 1px solid var(--status-danger); background: var(--status-danger-bg);">
+  <div class="section-label" style="margin-bottom: 0.5rem; color: var(--status-danger);">Danger zone</div>
+  <p style="font-size: 12.5px; color: var(--ink); line-height: 1.55; margin: 0 0 0.875rem 0; max-width: 720px;">
+    Permanently removes this profile and everything attached to it &mdash; your tracked applications,
+    discovered jobs and companies, resume, inbox connection, and any tailored resumes or screenshots.
+    This cannot be undone.
+  </p>
+  <form method="post" action="/profile/delete"
+        onsubmit="return confirm('Delete profile {{ active_profile_name }}? This cannot be undone.');"
+        style="display: inline-flex; gap: 0.5rem; align-items: center;">
+    <input type="hidden" name="name" value="{{ active_profile_name }}">
+    <label class="section-label" style="text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--ink-muted); font-size: 12px;">
+      Type <code class="mono" style="color: var(--ink-strong);">{{ active_profile_name }}</code> to confirm:
+    </label>
+    <input class="pill-input" name="confirm" required autocomplete="off"
+           placeholder="{{ active_profile_name }}"
+           style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px;">
+    <button type="submit" class="btn-ghost"
+            style="color: var(--status-danger); border-color: var(--status-danger); padding: 0.5rem 1rem; font-size: 12.5px;">
+      Delete profile
+    </button>
+  </form>
+</div>
+{% endif %}
 {% endblock %}
