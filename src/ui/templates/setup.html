@@ -5,13 +5,13 @@
     <h1 style="font-size: 28px; margin-bottom: 0.375rem;">Set up your profile</h1>
     <p style="color: var(--ink-muted); font-size: 14px; margin: 0;">
       Tell us who you are and what you're looking for. You can come back to
-      <a href="/settings" style="color: var(--accent); text-decoration: underline;">Settings</a>
+      <a href="/settings" class="link-accent">Settings</a>
       anytime to import a resume, connect your inbox, or change preferences.
     </p>
   </div>
 
-  {% if msg %}<div class="badge badge-success" style="display: block; padding: 0.5rem 0.875rem; margin-bottom: 1rem;">{{ msg }}</div>{% endif %}
-  {% if err %}<div class="badge badge-danger" style="display: block; padding: 0.5rem 0.875rem; margin-bottom: 1rem;">{{ err }}</div>{% endif %}
+  {% if msg %}<div class="badge badge-success flash-banner-block-lg">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="badge badge-danger flash-banner-block-lg">{{ err }}</div>{% endif %}
 
   {% if existing_profiles %}
     <div class="glass-card" style="padding: 1rem 1.25rem; margin-bottom: 1.5rem;">
@@ -31,35 +31,35 @@
       <div class="section-label" style="margin-bottom: 0.875rem;">Profile identity</div>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.875rem;">
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Profile slug</label>
-          <input class="pill-input" name="profile_name" required placeholder="e.g. jane_smith" style="width: 100%;">
+          <label for="profile_name" class="section-label form-label">Profile slug</label>
+          <input id="profile_name" class="pill-input form-input-full" name="profile_name" required placeholder="e.g. jane_smith">
           <p style="font-size: 11px; color: var(--ink-muted); margin-top: 0.25rem;">
             Lowercase, underscores. Becomes the directory name under <code class="mono">profiles/</code>.
           </p>
         </div>
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Full name</label>
-          <input class="pill-input" name="name" required placeholder="Jane Smith" style="width: 100%;">
+          <label for="name" class="section-label form-label">Full name</label>
+          <input id="name" class="pill-input form-input-full" name="name" required placeholder="Jane Smith">
         </div>
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Email</label>
-          <input class="pill-input" name="email" type="email" required placeholder="jane@example.com" style="width: 100%;">
+          <label for="email" class="section-label form-label">Email</label>
+          <input id="email" class="pill-input form-input-full" name="email" type="email" required placeholder="jane@example.com">
         </div>
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Phone</label>
-          <input class="pill-input" name="phone" required placeholder="+1 555 555 5555" style="width: 100%;">
+          <label for="phone" class="section-label form-label">Phone</label>
+          <input id="phone" class="pill-input form-input-full" name="phone" required placeholder="+1 555 555 5555">
         </div>
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Location</label>
-          <input class="pill-input" name="location" required placeholder="Philadelphia, PA" style="width: 100%;">
+          <label for="location" class="section-label form-label">Location</label>
+          <input id="location" class="pill-input form-input-full" name="location" required placeholder="Philadelphia, PA">
         </div>
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">LinkedIn handle <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional)</span></label>
-          <input class="pill-input" name="linkedin" placeholder="janesmith" style="width: 100%;">
+          <label for="linkedin" class="section-label form-label">LinkedIn handle <span class="section-label-soft">(optional)</span></label>
+          <input id="linkedin" class="pill-input form-input-full" name="linkedin" placeholder="janesmith">
         </div>
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">GitHub username <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional)</span></label>
-          <input class="pill-input" name="github" placeholder="janesmith" style="width: 100%;">
+          <label for="github" class="section-label form-label">GitHub username <span class="section-label-soft">(optional)</span></label>
+          <input id="github" class="pill-input form-input-full" name="github" placeholder="janesmith">
         </div>
       </div>
     </div>
@@ -69,8 +69,8 @@
       <div class="section-label" style="margin-bottom: 0.875rem;">Job preferences</div>
       <div style="display: flex; flex-direction: column; gap: 0.875rem;">
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Target roles (comma-separated)</label>
-          <textarea class="pill-input" name="roles" required rows="2" placeholder="Software Engineer, New Grad SWE" style="width: 100%;"></textarea>
+          <label for="roles" class="section-label form-label">Target roles (comma-separated)</label>
+          <textarea id="roles" class="pill-input form-input-full" name="roles" required rows="2" placeholder="Software Engineer, New Grad SWE"></textarea>
           <label style="display: inline-flex; gap: 0.375rem; align-items: center; font-size: 11px; color: var(--ink-muted); margin-top: 0.375rem;">
             <input type="checkbox" name="expand" value="1" checked>
             Expand keywords via Claude (recommended — adds level / variant terms like "Junior SWE", "SDE I", etc. ~$0.005)
@@ -79,23 +79,23 @@
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.875rem;">
           <div>
-            <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Experience levels</label>
-            <input class="pill-input" name="experience_levels" required placeholder="entry-level, new grad" style="width: 100%;">
+            <label for="experience_levels" class="section-label form-label">Experience levels</label>
+            <input id="experience_levels" class="pill-input form-input-full" name="experience_levels" required placeholder="entry-level, new grad">
           </div>
           <div>
-            <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Locations</label>
-            <input class="pill-input" name="locations" required placeholder="Remote, New York, San Francisco" style="width: 100%;">
+            <label for="locations" class="section-label form-label">Locations</label>
+            <input id="locations" class="pill-input form-input-full" name="locations" required placeholder="Remote, New York, San Francisco">
           </div>
         </div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.875rem;">
           <div>
-            <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Minimum salary ($) <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional)</span></label>
-            <input class="pill-input" name="salary_min" type="number" min="0" placeholder="80000" style="width: 100%;">
+            <label for="salary_min" class="section-label form-label">Minimum salary ($) <span class="section-label-soft">(optional)</span></label>
+            <input id="salary_min" class="pill-input form-input-full" name="salary_min" type="number" min="0" placeholder="80000">
           </div>
           <div>
-            <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Industries <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional)</span></label>
-            <input class="pill-input" name="industries" placeholder="AI, Tech, SaaS" style="width: 100%;">
+            <label for="industries" class="section-label form-label">Industries <span class="section-label-soft">(optional)</span></label>
+            <input id="industries" class="pill-input form-input-full" name="industries" placeholder="AI, Tech, SaaS">
           </div>
         </div>
       </div>
@@ -106,11 +106,11 @@
       <div class="section-label" style="margin-bottom: 0.875rem;">Application settings</div>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.875rem; align-items: end;">
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Seconds to wait between submissions</label>
-          <input class="pill-input" name="rate_limit_seconds" type="number" min="1" value="30" style="width: 100%;">
+          <label for="rate_limit_seconds" class="section-label form-label">Seconds to wait between submissions</label>
+          <input id="rate_limit_seconds" class="pill-input form-input-full" name="rate_limit_seconds" type="number" min="1" value="30">
         </div>
         <div>
-          <label style="display: inline-flex; gap: 0.5rem; align-items: center;">
+          <label class="toolbar-row">
             <input type="checkbox" name="auto_submit" value="1">
             <span style="font-size: 13px;">Skip the per-job review prompt and submit automatically</span>
           </label>
@@ -127,12 +127,12 @@
       <p style="font-size: 12.5px; color: var(--ink-muted); margin: 0 0 0.875rem 0; line-height: 1.55;">
         Without a resume on file, fit scoring is skipped (every discovered job lands without a 1–5 score,
         and the default Jobs filter at min-fit ≥ 3 will hide them all). The optimizer also has nothing
-        to tailor. You can skip this and add it later from <a href="/settings" style="color: var(--accent); text-decoration: underline;">Settings</a>,
+        to tailor. You can skip this and add it later from <a href="/settings" class="link-accent">Settings</a>,
         but the system is meaningfully degraded until you do.
       </p>
       <div>
-        <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Resume PDF <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional, ≤10MB · parsed via Claude ~$0.01, adds 10–30s to setup)</span></label>
-        <input type="file" name="resume" accept="application/pdf"
+        <label for="resume" class="section-label form-label">Resume PDF <span class="section-label-soft">(optional, ≤10MB · parsed via Claude ~$0.01, adds 10–30s to setup)</span></label>
+        <input id="resume" type="file" name="resume" accept="application/pdf"
                style="font-size: 12.5px; color: var(--ink); padding: 0.25rem 0;">
       </div>
     </div>
@@ -143,7 +143,7 @@
       <p style="font-size: 12px; color: var(--ink-muted); margin: 0 0 0.875rem 0;">
         Optional — applied to common form fields when the wording matches. Leave blank to skip and add later from Settings.
       </p>
-      <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+      <div class="form-stack">
         {% for field, label, placeholder in [
           ('work_authorization', 'Work authorization', 'Yes, I am authorized to work in the United States'),
           ('visa_sponsorship', 'Visa sponsorship', 'No'),
@@ -153,8 +153,8 @@
           ('disability', 'Disability status', 'Prefer not to say'),
         ] %}
           <div>
-            <label class="section-label" style="display: block; margin-bottom: 0.25rem;">{{ label }}</label>
-            <input class="pill-input" name="{{ field }}" placeholder="{{ placeholder }}" style="width: 100%;">
+            <label for="{{ field }}" class="section-label form-label">{{ label }}</label>
+            <input id="{{ field }}" class="pill-input form-input-full" name="{{ field }}" placeholder="{{ placeholder }}">
           </div>
         {% endfor %}
       </div>

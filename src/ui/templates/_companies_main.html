@@ -30,7 +30,7 @@
   {% elif discover_status and discover_status.state == 'cancelled' %}
     <div class="sync-banner sync-banner-warning">{{ discover_status.message or 'Discovery cancelled.' }}</div>
   {% elif discover_status and discover_status.state == 'idle' and discover_status.completed_at %}
-    <div class="badge badge-success" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">
+    <div class="badge badge-success flash-banner">
       Discovery complete:
       {{ discover_status.added or 0 }} added ·
       {{ discover_status.skipped or 0 }} skipped ·
@@ -39,10 +39,10 @@
   {% endif %}
 
   {% if discover_msg %}
-    <div class="badge badge-success" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ discover_msg }}</div>
+    <div class="badge badge-success flash-banner">{{ discover_msg }}</div>
   {% endif %}
   {% if discover_err %}
-    <div class="badge badge-danger" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ discover_err }}</div>
+    <div class="badge badge-danger flash-banner">{{ discover_err }}</div>
   {% endif %}
 
   <div style="display: grid; grid-template-columns: 1fr 360px; gap: 1.5rem; align-items: start;">
@@ -92,7 +92,7 @@
                 <td style="font-weight: 500;">{{ c.name }}</td>
                 <td style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--ink-muted);">{{ c.slug }}</td>
                 <td><span class="badge badge-neutral">{{ c.ats }}</span></td>
-                <td><a href="{{ c.careers_url }}" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: underline;">link</a></td>
+                <td><a href="{{ c.careers_url }}" target="_blank" rel="noopener" class="link-accent">link</a></td>
                 <td style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--ink-muted);">{{ c.added or '—' }}</td>
                 <td class="company-row-action">
                   <button type="button"
@@ -115,20 +115,20 @@
     <div class="glass-card" style="padding: 1.5rem;">
       <div class="section-label" style="margin-bottom: 0.75rem;">Add company</div>
       {% if added %}
-        <div class="badge badge-success" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ added }}</div>
+        <div class="badge badge-success flash-banner-block">{{ added }}</div>
       {% endif %}
       {% if error %}
-        <div class="badge badge-danger" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ error }}</div>
+        <div class="badge badge-danger flash-banner-block">{{ error }}</div>
       {% endif %}
       <form method="post" action="/companies" style="display: flex; flex-direction: column; gap: 0.875rem;">
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Slug</label>
-          <input class="pill-input" name="slug" placeholder="e.g. anthropic" required style="width: 100%;">
+          <label for="slug" class="section-label form-label">Slug</label>
+          <input id="slug" class="pill-input form-input-full" name="slug" placeholder="e.g. anthropic" required>
           <p style="font-size: 11px; color: var(--ink-muted); margin-top: 0.25rem;">The URL-safe identifier from greenhouse.io, lever.co, or ashbyhq.com.</p>
         </div>
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">ATS</label>
-          <select class="pill-select" name="ats" style="width: 100%;">
+          <label for="ats" class="section-label form-label">ATS</label>
+          <select id="ats" class="pill-select form-input-full" name="ats">
             <option value="auto" selected>auto-detect</option>
             <option value="greenhouse">greenhouse</option>
             <option value="lever">lever</option>

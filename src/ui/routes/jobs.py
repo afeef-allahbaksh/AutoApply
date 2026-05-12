@@ -282,3 +282,26 @@ def track_job(request: Request, idx: int, status: str = Form("applied")):
         request, "_job_row.html",
         {"request": request, "row": row, "tracked_now": True, "tracked_status": status},
     )
+
+
+@router.post("/jobs/{idx}/delete")
+def delete_job(request: Request, idx: int):
+    """Remove a job from jobs.json by index. Applications referencing the job
+    are untouched — composite-key dedup keeps them independent. Discover may
+    re-add the job on the next run if it's still on the underlying ATS board."""
+    profile_name = state.active_profile()
+    if not profile_name:
+        raise HTTPException(status_code=400, detail="No active profile.")
+    lock = state.profile_lock(profile_name)
+    with lock:
+        try:
+            profile = Profile(profile_name)
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        jobs = list(_load_jobs(profile_name))
+        if not 0 <= idx < len(jobs):
+            raise HTTPException(status_code=404, detail=f"job index {idx} out of range")
+        jobs.pop(idx)
+        profile.save_jobs(jobs)
+    # hx-swap="delete" on the client removes the row in-place. Empty body.
+    return HTMLResponse("")

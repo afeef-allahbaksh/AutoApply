@@ -31,13 +31,13 @@
   {% endif %}
 
   {% if discover_msg %}
-    <div class="badge badge-success" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ discover_msg }}</div>
+    <div class="badge badge-success flash-banner">{{ discover_msg }}</div>
   {% endif %}
   {% if discover_err %}
-    <div class="badge badge-danger" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ discover_err }}</div>
+    <div class="badge badge-danger flash-banner">{{ discover_err }}</div>
   {% endif %}
 
-  <div id="jobs-table" class="glass-card" style="padding: 0; overflow: hidden;">
+  <div id="jobs-table" class="glass-card" style="padding: 0; overflow: visible;">
     {% include "_jobs_table.html" %}
   </div>
 </div>

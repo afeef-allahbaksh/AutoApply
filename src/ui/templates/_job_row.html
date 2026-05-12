@@ -9,16 +9,15 @@
   <td style="color: var(--ink); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ row.title }}">{{ row.title }}</td>
   <td style="color: var(--ink-muted);">{{ row.location or '—' }}</td>
   <td>{% if row.fit_score %}<span class="badge {% if row.fit_score >= 4 %}badge-success{% elif row.fit_score >= 3 %}badge-info{% else %}badge-neutral{% endif %}">{{ row.fit_score }}/5</span>{% else %}<span style="color: var(--ink-muted);">—</span>{% endif %}</td>
-  <td style="color: var(--ink-muted);">{{ row.relevance_score or '—' }}</td>
   <td><span class="badge badge-neutral">{{ row.ats }}</span></td>
   <td>
-    <a href="{{ row.posting_url }}" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: underline;">link</a>
+    <a href="{{ row.posting_url }}" target="_blank" rel="noopener" class="link-accent">link</a>
   </td>
   <td style="text-align: right; white-space: nowrap;">
     {% if tracked_now %}
       <span class="badge badge-success">tracked as {{ tracked_status }}</span>
     {% else %}
-      <div style="display: inline-flex; gap: 0.5rem; align-items: center;">
+      <div class="toolbar-row">
         <a href="/jobs/{{ row._idx }}/optimize"
            class="btn-ghost btn-sm"
            style="padding: 0.25rem 0.625rem; font-size: 12px;"
@@ -27,22 +26,42 @@
            class="btn-ghost btn-sm"
            style="padding: 0.25rem 0.625rem; font-size: 12px;"
            title="Fill the application via Playwright (opens a visible browser)">Apply</a>
-        <form hx-post="/jobs/{{ row._idx }}/track"
-              hx-target="#job-row-{{ row._idx }}"
-              hx-swap="outerHTML"
-              hx-disabled-elt="find button"
-              style="display: inline-flex; gap: 0.5rem; align-items: center;">
-          <select name="status" class="pill-select" style="padding: 0.25rem 0.625rem; font-size: 12px;">
-            <option value="applied" selected>applied</option>
-            <option value="screen">screen</option>
-            <option value="technical">technical</option>
-            <option value="onsite">onsite</option>
-            <option value="offer">offer</option>
-            <option value="rejected">rejected</option>
-          </select>
-          <button type="submit" class="btn-primary" style="padding: 0.25rem 0.875rem; font-size: 12px;">Track</button>
-          <span class="htmx-indicator spinner"></span>
-        </form>
+        <div class="row-actions">
+          <button type="button" class="menu-trigger"
+                  aria-haspopup="menu"
+                  aria-expanded="false"
+                  aria-label="More actions for {{ row.title }}">⋯</button>
+          <div class="menu-panel" role="menu">
+            <form hx-post="/jobs/{{ row._idx }}/track"
+                  hx-target="#job-row-{{ row._idx }}"
+                  hx-swap="outerHTML"
+                  hx-disabled-elt="find button"
+                  class="menu-track-form">
+              <span class="menu-label">Track as</span>
+              <div class="menu-track-row">
+                <select name="status" class="pill-select" aria-label="status">
+                  <option value="applied" selected>applied</option>
+                  <option value="screen">screen</option>
+                  <option value="technical">technical</option>
+                  <option value="onsite">onsite</option>
+                  <option value="offer">offer</option>
+                  <option value="rejected">rejected</option>
+                </select>
+                <button type="submit" class="btn-primary btn-sm">Track</button>
+                <span class="htmx-indicator spinner"></span>
+              </div>
+            </form>
+            <div class="menu-divider"></div>
+            <button type="button" role="menuitem"
+                    class="menu-item menu-item-danger"
+                    hx-post="/jobs/{{ row._idx }}/delete"
+                    hx-target="#job-row-{{ row._idx }}"
+                    hx-swap="delete"
+                    hx-confirm="Remove '{{ row.title }}' at {{ row.company }} from the list? Applications and history are kept; the next Discover run may re-add it.">
+              Remove from list
+            </button>
+          </div>
+        </div>
       </div>
     {% endif %}
   </td>

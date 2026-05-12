@@ -103,12 +103,11 @@ def test_delete_path_traversal_rejected():
     print("  ok: path traversal slug rejected (and profiles/ intact)")
 
 
-def test_settings_page_has_danger_zone():
-    """Smoke check the template emits the danger zone block when a profile
-    is active."""
+def test_profile_delete_modal_rendered_in_sidebar():
+    """Smoke check the profile-delete modal + sidebar menu item render on
+    every page (they live in base.html now, not just /settings)."""
     from fastapi.testclient import TestClient
     from src.ui.app import app
-    # Need an active profile so the conditional fires
     profiles = sorted(p.name for p in PROFILES_DIR.iterdir() if p.is_dir() and (p / 'profile.json').exists())
     if not profiles:
         print("  skipped: no profiles on disk")
@@ -116,12 +115,22 @@ def test_settings_page_has_danger_zone():
     os.environ["AUTOAPPLY_PROFILE"] = profiles[0]
     try:
         client = TestClient(app)
-        resp = client.get("/settings")
-        assert resp.status_code == 200, f"GET /settings → {resp.status_code}"
-        assert "Danger zone" in resp.text, "Danger zone section present"
+        # Pick a page that's NOT /settings to confirm the modal moved out.
+        resp = client.get("/")
+        assert resp.status_code == 200, f"GET / → {resp.status_code}"
+        # Sidebar menu trigger
+        assert 'data-open-modal="profile-delete-modal"' in resp.text, \
+            "sidebar 'Delete this profile' menu item wires to the modal"
+        # Modal itself + form contract
+        assert 'id="profile-delete-modal"' in resp.text, "delete modal markup present"
         assert "/profile/delete" in resp.text, "delete form action present"
-        assert profiles[0] in resp.text, f"profile name {profiles[0]} echoed in danger zone"
-        print(f"  ok: Danger zone rendered for active profile {profiles[0]}")
+        assert 'data-confirm-name="' + profiles[0] + '"' in resp.text, \
+            "type-to-confirm form is wired to the active profile name"
+        # And the disclosure should NO LONGER be on /settings (moved to sidebar)
+        settings_resp = client.get("/settings")
+        assert "danger-disclosure" not in settings_resp.text, \
+            "old <details class='danger-disclosure'> removed from /settings"
+        print(f"  ok: profile-delete modal renders globally for {profiles[0]}")
     finally:
         os.environ.pop("AUTOAPPLY_PROFILE", None)
 
@@ -132,7 +141,7 @@ if __name__ == "__main__":
         test_delete_rejects_wrong_confirm,
         test_delete_unknown_profile_no_op,
         test_delete_path_traversal_rejected,
-        test_settings_page_has_danger_zone,
+        test_profile_delete_modal_rendered_in_sidebar,
     ]
 
     failed = 0

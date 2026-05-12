@@ -35,10 +35,10 @@
   {% endif %}
 
   {% if msg %}
-    <div class="badge badge-success" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ msg }}</div>
+    <div class="badge badge-success flash-banner">{{ msg }}</div>
   {% endif %}
   {% if err %}
-    <div class="badge badge-danger" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ err }}</div>
+    <div class="badge badge-danger flash-banner">{{ err }}</div>
   {% endif %}
 
   {% set post_url = "/jobs/" ~ job_idx ~ "/apply/prompt" %}

@@ -168,7 +168,7 @@ def wait_for_state(sf, task_key, states, timeout=4.0):
 
 def test_routes_registered():
     from src.ui.app import app
-    paths = {(tuple(sorted(r.methods)), r.path) for r in app.routes if hasattr(r, "path")}
+    paths = {(tuple(sorted(r.methods)), r.path) for r in app.routes if hasattr(r, "methods")}
     expected = [
         (("POST",), "/apply/batch/start"),
         (("GET",), "/apply/batch"),

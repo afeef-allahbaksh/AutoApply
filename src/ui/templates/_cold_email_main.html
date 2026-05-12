@@ -1,6 +1,6 @@
 <div id="cold-email-content">
-  {% if msg %}<div class="badge badge-success" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ msg }}</div>{% endif %}
-  {% if err %}<div class="badge badge-danger" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ err }}</div>{% endif %}
+  {% if msg %}<div class="badge badge-success flash-banner">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="badge badge-danger flash-banner">{{ err }}</div>{% endif %}
 
   {% if ungenerated_count and ungenerated_count > 0 %}
     <div class="glass-card" style="padding: 0.875rem 1.125rem; margin-bottom: 1rem; border-left: 3px solid var(--accent); background: var(--accent-tint);">
@@ -28,7 +28,7 @@
       <p style="color: var(--ink-soft); font-size: 13px; margin: 0;">Click "+ New outreach" to draft your first email to someone at a company.</p>
     </div>
   {% else %}
-    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+    <div class="form-stack">
       {% for r in records %}
         <details class="glass-card" {% if r.id == open_id %}open{% endif %}
                  data-contact-name="{{ r.contact_name }}"
@@ -52,24 +52,24 @@
                   style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.875rem;">
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
                 <div>
-                  <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Contact email</label>
-                  <input class="pill-input" name="contact_email" type="email" value="{{ r.contact_email }}" placeholder="needed to send" style="width: 100%;">
+                  <label for="contact_email" class="section-label form-label">Contact email</label>
+                  <input id="contact_email" class="pill-input form-input-full" name="contact_email" type="email" value="{{ r.contact_email }}" placeholder="needed to send">
                   <div class="email-suggestions" style="margin-top: 0.375rem;"></div>
                 </div>
                 <div>
-                  <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Contact title</label>
-                  <input class="pill-input" name="contact_title" value="{{ r.contact_title }}" style="width: 100%;">
+                  <label for="contact_title" class="section-label form-label">Contact title</label>
+                  <input id="contact_title" class="pill-input form-input-full" name="contact_title" value="{{ r.contact_title }}">
                 </div>
               </div>
 
               <div>
-                <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Company domain <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(e.g. anthropic.com — used to guess emails)</span></label>
-                <input class="pill-input" name="company_domain" value="{{ r.company_domain or '' }}" placeholder="anthropic.com" style="width: 100%;">
+                <label for="company_domain" class="section-label form-label">Company domain <span class="section-label-soft">(e.g. anthropic.com — used to guess emails)</span></label>
+                <input id="company_domain" class="pill-input form-input-full" name="company_domain" value="{{ r.company_domain or '' }}" placeholder="anthropic.com">
               </div>
 
               <div>
-                <label class="section-label" style="display: block; margin-bottom: 0.25rem;">For which job? <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional)</span></label>
-                <select class="pill-select" name="linked_job_idx" style="width: 100%;">
+                <label for="linked_job_idx" class="section-label form-label">For which job? <span class="section-label-soft">(optional)</span></label>
+                <select id="linked_job_idx" class="pill-select form-input-full" name="linked_job_idx">
                   <option value="">— none —</option>
                   {% for company_name, company_jobs in jobs_by_company %}
                     <optgroup label="{{ company_name }}">
@@ -82,19 +82,19 @@
               </div>
 
               <div>
-                <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Why this person?</label>
-                <textarea class="pill-input" name="context_notes" rows="2" style="width: 100%;">{{ r.context_notes }}</textarea>
+                <label for="context_notes" class="section-label form-label">Why this person?</label>
+                <textarea id="context_notes" class="pill-input form-input-full" name="context_notes" rows="2">{{ r.context_notes }}</textarea>
               </div>
 
               <div>
-                <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Subject</label>
-                <input class="pill-input" name="draft_subject" value="{{ r.draft_subject }}"
-                       placeholder="Click Generate to draft one, or write your own" style="width: 100%;">
+                <label for="draft_subject" class="section-label form-label">Subject</label>
+                <input id="draft_subject" class="pill-input form-input-full" name="draft_subject" value="{{ r.draft_subject }}"
+                       placeholder="Click Generate to draft one, or write your own">
               </div>
 
               <div>
-                <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Body</label>
-                <textarea class="pill-input" name="draft_body" rows="10"
+                <label for="draft_body" class="section-label form-label">Body</label>
+                <textarea id="draft_body" class="pill-input form-input-full" name="draft_body" rows="10"
                           placeholder="Click Generate to draft one, or write your own"
                           style="width: 100%; font-family: 'Geist', sans-serif; line-height: 1.55;">{{ r.draft_body }}</textarea>
               </div>

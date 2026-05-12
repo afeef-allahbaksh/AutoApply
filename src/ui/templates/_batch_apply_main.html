@@ -33,10 +33,10 @@
   {% endif %}
 
   {% if msg %}
-    <div class="badge badge-success" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ msg }}</div>
+    <div class="badge badge-success flash-banner">{{ msg }}</div>
   {% endif %}
   {% if err %}
-    <div class="badge badge-danger" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ err }}</div>
+    <div class="badge badge-danger flash-banner">{{ err }}</div>
   {% endif %}
 
   {% if status.mode == 'batch' and total > 0 %}
@@ -106,7 +106,7 @@
       <p style="margin: 0.5rem 0 0; font-size: 14px; color: var(--ink);">{{ status.message }}</p>
       <p style="margin: 0.5rem 0 0; font-size: 12px; color: var(--ink-muted);">
         Re-select jobs on the
-        <a href="/jobs" style="color: var(--accent); text-decoration: underline;">Jobs page</a>
+        <a href="/jobs" class="link-accent">Jobs page</a>
         to run another batch.
       </p>
     </div>
@@ -115,7 +115,7 @@
       <p style="margin: 0; font-size: 14px; color: var(--ink);">No batch running.</p>
       <p style="margin: 0.5rem 0 0; font-size: 12px; color: var(--ink-muted);">
         Select jobs on the
-        <a href="/jobs" style="color: var(--accent); text-decoration: underline;">Jobs page</a>
+        <a href="/jobs" class="link-accent">Jobs page</a>
         and click <strong>Apply to selected</strong> to start a batch.
       </p>
     </div>

@@ -42,10 +42,10 @@
 </style>
 
 {% if sync_msg %}
-  <div class="badge badge-success" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ sync_msg }}</div>
+  <div class="badge badge-success flash-banner">{{ sync_msg }}</div>
 {% endif %}
 {% if sync_err %}
-  <div class="badge badge-danger" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ sync_err }}</div>
+  <div class="badge badge-danger flash-banner">{{ sync_err }}</div>
 {% endif %}
 
 {% if proposals %}

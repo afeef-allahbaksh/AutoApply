@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from .routes import (
     applications,
@@ -16,6 +19,9 @@ from .routes import (
 )
 
 app = FastAPI(title="AutoApply", docs_url=None, redoc_url=None)
+
+_STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 app.include_router(setup.router)
 app.include_router(dashboard.router)

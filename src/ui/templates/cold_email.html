@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block header_actions %}
-<div style="display: inline-flex; gap: 0.5rem; align-items: center;">
+<div class="toolbar-row">
   <button class="btn-ghost" type="button"
           onclick="document.getElementById('bulk-import').style.display='block'; document.getElementById('new-outreach').style.display='none';">
     Bulk import
@@ -25,8 +25,8 @@
         hx-target="#cold-email-content"
         hx-swap="outerHTML"
         hx-on::after-request="if (event.detail.successful) { this.reset(); document.getElementById('bulk-import').style.display='none'; }"
-        style="display: flex; flex-direction: column; gap: 0.75rem;">
-    <textarea class="pill-input" name="csv_text" rows="6" required
+        class="form-stack">
+    <textarea class="pill-input form-input-full" name="csv_text" rows="6" required
               style="width: 100%; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px;"
               placeholder="Jane Smith, jane@anthropic.com, Engineer, Anthropic, anthropic.com, met at conf
 John Doe, , PM, Stripe, stripe.com, leads platform team"></textarea>
@@ -46,33 +46,33 @@ John Doe, , PM, Stripe, stripe.com, leads platform team"></textarea>
         hx-on::after-request="if (event.detail.successful) { this.reset(); document.getElementById('new-outreach').style.display='none'; document.querySelector('header.page-head button.btn-primary').style.display='inline-flex'; }"
         style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.875rem;">
     <div>
-      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Company</label>
-      <input class="pill-input" name="company" required list="company-suggestions"
-             placeholder="Company name" style="width: 100%;">
+      <label for="company" class="section-label form-label">Company</label>
+      <input id="company" class="pill-input form-input-full" name="company" required list="company-suggestions"
+             placeholder="Company name">
       <datalist id="company-suggestions">
         {% for c in companies %}<option value="{{ c.name }}">{% endfor %}
       </datalist>
     </div>
     <div>
-      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Contact name</label>
-      <input class="pill-input" name="contact_name" required placeholder="Jane Smith" style="width: 100%;">
+      <label for="contact_name" class="section-label form-label">Contact name</label>
+      <input id="contact_name" class="pill-input form-input-full" name="contact_name" required placeholder="Jane Smith">
     </div>
     <div>
-      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Contact email <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(needed to send)</span></label>
-      <input class="pill-input" name="contact_email" type="email" placeholder="jane@company.com" style="width: 100%;">
+      <label for="contact_email" class="section-label form-label">Contact email <span class="section-label-soft">(needed to send)</span></label>
+      <input id="contact_email" class="pill-input form-input-full" name="contact_email" type="email" placeholder="jane@company.com">
       <div class="email-suggestions" style="margin-top: 0.375rem;"></div>
     </div>
     <div>
-      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Company domain <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(for email guess — e.g. anthropic.com)</span></label>
-      <input class="pill-input" name="company_domain" placeholder="anthropic.com" style="width: 100%;">
+      <label for="company_domain" class="section-label form-label">Company domain <span class="section-label-soft">(for email guess — e.g. anthropic.com)</span></label>
+      <input id="company_domain" class="pill-input form-input-full" name="company_domain" placeholder="anthropic.com">
     </div>
     <div>
-      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Contact title <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional)</span></label>
-      <input class="pill-input" name="contact_title" placeholder="Engineering Manager" style="width: 100%;">
+      <label for="contact_title" class="section-label form-label">Contact title <span class="section-label-soft">(optional)</span></label>
+      <input id="contact_title" class="pill-input form-input-full" name="contact_title" placeholder="Engineering Manager">
     </div>
     <div style="grid-column: span 2;">
-      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">For which job? <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(optional — the JD becomes context for the generator)</span></label>
-      <select class="pill-select" name="linked_job_idx" style="width: 100%;">
+      <label for="linked_job_idx" class="section-label form-label">For which job? <span class="section-label-soft">(optional — the JD becomes context for the generator)</span></label>
+      <select id="linked_job_idx" class="pill-select form-input-full" name="linked_job_idx">
         <option value="">— none —</option>
         {% for company_name, company_jobs in jobs_by_company %}
           <optgroup label="{{ company_name }}">
@@ -85,9 +85,9 @@ John Doe, , PM, Stripe, stripe.com, leads platform team"></textarea>
     </div>
 
     <div style="grid-column: span 2;">
-      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Why this person? <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(context for the generator — what you know about them, why you're reaching out)</span></label>
-      <textarea class="pill-input" name="context_notes" rows="3"
-                placeholder="Met at a conf, leads the team I want to join, shipped X, etc." style="width: 100%;"></textarea>
+      <label for="context_notes" class="section-label form-label">Why this person? <span class="section-label-soft">(context for the generator — what you know about them, why you're reaching out)</span></label>
+      <textarea id="context_notes" class="pill-input form-input-full" name="context_notes" rows="3"
+                placeholder="Met at a conf, leads the team I want to join, shipped X, etc."></textarea>
     </div>
     <div style="grid-column: span 2; display: flex; gap: 0.5rem; justify-content: flex-end;">
       <button type="button" class="btn-ghost"

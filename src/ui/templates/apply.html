@@ -14,7 +14,7 @@
     {% if job.location %}{{ job.location }} · {% endif %}
     {% if job.fit_score %}Fit <strong style="color: var(--ink);">{{ job.fit_score }}/5</strong> · {% endif %}
     <span class="badge badge-neutral">{{ job.ats or '?' }}</span> ·
-    {% if job.posting_url %}<a href="{{ job.posting_url }}" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: underline;">posting ↗</a>{% endif %}
+    {% if job.posting_url %}<a href="{{ job.posting_url }}" target="_blank" rel="noopener" class="link-accent">posting ↗</a>{% endif %}
   </div>
 </div>
 

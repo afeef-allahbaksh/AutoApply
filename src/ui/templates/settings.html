@@ -11,8 +11,8 @@
     {% endif %}
   </div>
 
-  {% if inbox_msg %}<div class="badge badge-success" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ inbox_msg }}</div>{% endif %}
-  {% if inbox_err %}<div class="badge badge-danger" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ inbox_err }}</div>{% endif %}
+  {% if inbox_msg %}<div class="badge badge-success flash-banner-block">{{ inbox_msg }}</div>{% endif %}
+  {% if inbox_err %}<div class="badge badge-danger flash-banner-block">{{ inbox_err }}</div>{% endif %}
 
   <p style="font-size: 12.5px; color: var(--ink-muted); line-height: 1.6; margin: 0 0 1rem 0; max-width: 720px;">
     Connect any IMAP-supporting mailbox so AutoApply can pick up application status updates from your inbox.
@@ -25,23 +25,23 @@
   <form method="post" action="/settings/inbox/save"
         style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; max-width: 720px;">
     <div>
-      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Email address</label>
-      <input class="pill-input" name="email" type="email" required
+      <label for="email" class="section-label form-label">Email address</label>
+      <input id="email" class="pill-input form-input-full" name="email" type="email" required
              value="{{ inbox.email or '' }}"
-             placeholder="you@gmail.com" style="width: 100%;">
+             placeholder="you@gmail.com">
     </div>
     <div>
-      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">App password</label>
-      <input class="pill-input" name="password" type="password" required
-             placeholder="16-character app password" style="width: 100%;">
+      <label for="password" class="section-label form-label">App password</label>
+      <input id="password" class="pill-input form-input-full" name="password" type="password" required
+             placeholder="16-character app password">
     </div>
     <div>
-      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">IMAP server <span style="text-transform: none; letter-spacing: 0; color: var(--ink-soft); font-weight: 400;">(default Gmail)</span></label>
-      <input class="pill-input" name="server" placeholder="{{ default_imap_server }}" style="width: 100%;">
+      <label for="server" class="section-label form-label">IMAP server <span class="section-label-soft">(default Gmail)</span></label>
+      <input id="server" class="pill-input form-input-full" name="server" placeholder="{{ default_imap_server }}">
     </div>
     <div>
-      <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Port</label>
-      <input class="pill-input" name="port" type="number" placeholder="{{ default_imap_port }}" style="width: 100%;">
+      <label for="port" class="section-label form-label">Port</label>
+      <input id="port" class="pill-input form-input-full" name="port" type="number" placeholder="{{ default_imap_port }}">
     </div>
     <div style="grid-column: span 2; display: flex; gap: 0.5rem; align-items: center;">
       <button type="submit" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 12.5px;">
@@ -70,8 +70,8 @@
     {% endif %}
   </div>
 
-  {% if resume_msg %}<div class="badge badge-success" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ resume_msg }}</div>{% endif %}
-  {% if resume_err %}<div class="badge badge-danger" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ resume_err }}</div>{% endif %}
+  {% if resume_msg %}<div class="badge badge-success flash-banner-block">{{ resume_msg }}</div>{% endif %}
+  {% if resume_err %}<div class="badge badge-danger flash-banner-block">{{ resume_err }}</div>{% endif %}
 
   <p style="font-size: 12.5px; color: var(--ink-muted); line-height: 1.6; margin: 0 0 1rem 0; max-width: 720px;">
     Upload your resume as a PDF. Claude reads it into the structured form the optimizer needs
@@ -81,9 +81,9 @@
   </p>
 
   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; max-width: 720px;">
-    <form method="post" action="/settings/resume/import" enctype="multipart/form-data"
-          style="display: flex; flex-direction: column; gap: 0.75rem;">
-      <label class="section-label">Import full resume</label>
+    <form class="form-stack" method="post" action="/settings/resume/import"
+          enctype="multipart/form-data">
+      <div class="section-label">Import full resume</div>
       <label class="file-drop">
         <input type="file" name="file" accept="application/pdf" required>
         <span class="file-drop__icon">↑</span>
@@ -95,9 +95,9 @@
         {{ 'Re-import (overwrites)' if resume_info.exists else 'Import resume PDF' }}
       </button>
     </form>
-    <form method="post" action="/settings/resume/projects/add" enctype="multipart/form-data"
-          style="display: flex; flex-direction: column; gap: 0.75rem;">
-      <label class="section-label">Add projects from another PDF</label>
+    <form class="form-stack" method="post" action="/settings/resume/projects/add"
+          enctype="multipart/form-data">
+      <div class="section-label">Add projects from another PDF</div>
       <label class="file-drop">
         <input type="file" name="file" accept="application/pdf" required
                {% if not resume_info.exists %}disabled{% endif %}>
@@ -128,13 +128,13 @@
   <div class="glass-card" style="padding: 1.5rem;">
     <div class="section-label" style="margin-bottom: 0.875rem;">Profile preferences</div>
 
-    {% if profile_msg %}<div class="badge badge-success" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ profile_msg }}</div>{% endif %}
-    {% if profile_err %}<div class="badge badge-danger" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ profile_err }}</div>{% endif %}
+    {% if profile_msg %}<div class="badge badge-success flash-banner-block">{{ profile_msg }}</div>{% endif %}
+    {% if profile_err %}<div class="badge badge-danger flash-banner-block">{{ profile_err }}</div>{% endif %}
 
     <form method="post" action="/settings/profile" style="display: flex; flex-direction: column; gap: 0.875rem;">
       <div>
-        <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Roles (comma-separated)</label>
-        <textarea class="pill-input" name="roles" rows="3" style="width: 100%;">{{ profile.job_preferences.roles | join(", ") if profile.job_preferences and profile.job_preferences.roles else "" }}</textarea>
+        <label for="roles" class="section-label form-label">Roles (comma-separated)</label>
+        <textarea id="roles" class="pill-input form-input-full" name="roles" rows="3">{{ profile.job_preferences.roles | join(", ") if profile.job_preferences and profile.job_preferences.roles else "" }}</textarea>
         <label style="display: inline-flex; gap: 0.375rem; align-items: center; font-size: 11px; color: var(--ink-muted); margin-top: 0.375rem;">
           <input type="checkbox" name="expand" value="1"> Treat as seed roles and expand via Claude (slower)
         </label>
@@ -142,33 +142,33 @@
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Experience levels</label>
-          <input class="pill-input" name="experience_levels" value="{{ profile.job_preferences.experience_levels | join(', ') if profile.job_preferences and profile.job_preferences.experience_levels else '' }}" style="width: 100%;">
+          <label for="experience_levels" class="section-label form-label">Experience levels</label>
+          <input id="experience_levels" class="pill-input form-input-full" name="experience_levels" value="{{ profile.job_preferences.experience_levels | join(', ') if profile.job_preferences and profile.job_preferences.experience_levels else '' }}">
         </div>
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Locations</label>
-          <input class="pill-input" name="locations" value="{{ profile.job_preferences.locations | join(', ') if profile.job_preferences and profile.job_preferences.locations else '' }}" style="width: 100%;">
+          <label for="locations" class="section-label form-label">Locations</label>
+          <input id="locations" class="pill-input form-input-full" name="locations" value="{{ profile.job_preferences.locations | join(', ') if profile.job_preferences and profile.job_preferences.locations else '' }}">
         </div>
       </div>
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Salary min ($)</label>
-          <input class="pill-input" name="salary_min" type="number" min="0" value="{{ profile.job_preferences.salary_min if profile.job_preferences else '' }}" style="width: 100%;">
+          <label for="salary_min" class="section-label form-label">Salary min ($)</label>
+          <input id="salary_min" class="pill-input form-input-full" name="salary_min" type="number" min="0" value="{{ profile.job_preferences.salary_min if profile.job_preferences else '' }}">
         </div>
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Industries</label>
-          <input class="pill-input" name="industries" value="{{ profile.job_preferences.industries | join(', ') if profile.job_preferences and profile.job_preferences.industries else '' }}" placeholder="Optional" style="width: 100%;">
+          <label for="industries" class="section-label form-label">Industries</label>
+          <input id="industries" class="pill-input form-input-full" name="industries" value="{{ profile.job_preferences.industries | join(', ') if profile.job_preferences and profile.job_preferences.industries else '' }}" placeholder="Optional">
         </div>
       </div>
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; align-items: end;">
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">Rate limit (seconds)</label>
-          <input class="pill-input" name="rate_limit_seconds" type="number" min="1" value="{{ profile.settings.rate_limit_seconds if profile.settings else 30 }}" style="width: 100%;">
+          <label for="rate_limit_seconds" class="section-label form-label">Rate limit (seconds)</label>
+          <input id="rate_limit_seconds" class="pill-input form-input-full" name="rate_limit_seconds" type="number" min="1" value="{{ profile.settings.rate_limit_seconds if profile.settings else 30 }}">
         </div>
         <div>
-          <label style="display: inline-flex; gap: 0.5rem; align-items: center;">
+          <label class="toolbar-row">
             <input type="checkbox" name="auto_submit" value="1" {% if profile.settings and profile.settings.auto_submit %}checked{% endif %}>
             <span style="font-size: 13px;">Skip the per-job review prompt and submit automatically</span>
           </label>
@@ -182,10 +182,10 @@
   <div class="glass-card" style="padding: 1.5rem;">
     <div class="section-label" style="margin-bottom: 0.875rem;">EEO &amp; canned responses</div>
 
-    {% if responses_msg %}<div class="badge badge-success" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ responses_msg }}</div>{% endif %}
-    {% if responses_err %}<div class="badge badge-danger" style="display: block; padding: 0.5rem 0.75rem; margin-bottom: 0.875rem;">{{ responses_err }}</div>{% endif %}
+    {% if responses_msg %}<div class="badge badge-success flash-banner-block">{{ responses_msg }}</div>{% endif %}
+    {% if responses_err %}<div class="badge badge-danger flash-banner-block">{{ responses_err }}</div>{% endif %}
 
-    <form method="post" action="/settings/responses" style="display: flex; flex-direction: column; gap: 0.75rem;">
+    <form class="form-stack" method="post" action="/settings/responses">
       {% for field, label in [
         ('work_authorization', 'Work authorization'),
         ('visa_sponsorship', 'Visa sponsorship'),
@@ -195,8 +195,8 @@
         ('disability', 'Disability'),
       ] %}
         <div>
-          <label class="section-label" style="display: block; margin-bottom: 0.25rem;">{{ label }}</label>
-          <textarea class="pill-input" name="{{ field }}" rows="2" style="width: 100%;">{{ responses[field] if responses[field] else '' }}</textarea>
+          <label for="{{ field }}" class="section-label form-label">{{ label }}</label>
+          <textarea id="{{ field }}" class="pill-input form-input-full" name="{{ field }}" rows="2">{{ responses[field] if responses[field] else '' }}</textarea>
         </div>
       {% endfor %}
 
@@ -206,31 +206,6 @@
 
 </div>
 
-{# Danger zone — destructive profile operations live here so they aren't
-   reachable accidentally from the sidebar. #}
-{% if active_profile_name %}
-<div class="glass-card" style="padding: 1.5rem; margin-top: 1.5rem; border: 1px solid var(--status-danger); background: var(--status-danger-bg);">
-  <div class="section-label" style="margin-bottom: 0.5rem; color: var(--status-danger);">Danger zone</div>
-  <p style="font-size: 12.5px; color: var(--ink); line-height: 1.55; margin: 0 0 0.875rem 0; max-width: 720px;">
-    Permanently removes this profile and everything attached to it &mdash; your tracked applications,
-    discovered jobs and companies, resume, inbox connection, and any tailored resumes or screenshots.
-    This cannot be undone.
-  </p>
-  <form method="post" action="/profile/delete"
-        onsubmit="return confirm('Delete profile {{ active_profile_name }}? This cannot be undone.');"
-        style="display: inline-flex; gap: 0.5rem; align-items: center;">
-    <input type="hidden" name="name" value="{{ active_profile_name }}">
-    <label class="section-label" style="text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--ink-muted); font-size: 12px;">
-      Type <code class="mono" style="color: var(--ink-strong);">{{ active_profile_name }}</code> to confirm:
-    </label>
-    <input class="pill-input" name="confirm" required autocomplete="off"
-           placeholder="{{ active_profile_name }}"
-           style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px;">
-    <button type="submit" class="btn-ghost"
-            style="color: var(--status-danger); border-color: var(--status-danger); padding: 0.5rem 1rem; font-size: 12.5px;">
-      Delete profile
-    </button>
-  </form>
-</div>
-{% endif %}
+{# Profile delete now lives in the sidebar profile menu (base.html) so it's
+   reachable from any page, not just /settings. #}
 {% endblock %}

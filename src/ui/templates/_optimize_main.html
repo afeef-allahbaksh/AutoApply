@@ -29,10 +29,10 @@
   {% endif %}
 
   {% if msg %}
-    <div class="badge badge-success" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ msg }}</div>
+    <div class="badge badge-success flash-banner">{{ msg }}</div>
   {% endif %}
   {% if err %}
-    <div class="badge badge-danger" style="display: inline-block; padding: 0.4375rem 0.75rem; margin-bottom: 1rem;">{{ err }}</div>
+    <div class="badge badge-danger flash-banner">{{ err }}</div>
   {% endif %}
 
   {% if result_for_this_job %}
@@ -58,7 +58,7 @@
           hx-target="#optimize-content"
           hx-swap="outerHTML"
           hx-indicator="#optimize-spinner"
-          style="display: inline-flex; gap: 0.5rem; align-items: center;">
+          class="toolbar-row">
       <button type="submit" class="btn-primary" hx-disabled-elt="this">Start optimize</button>
       <span id="optimize-spinner" class="htmx-indicator spinner"></span>
       <span style="margin-left: 0.625rem; font-size: 12px; color: var(--ink-muted);">Typically 15-30s · ~$0.025 in Claude tokens</span>
