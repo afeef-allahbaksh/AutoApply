@@ -1,0 +1,15 @@
+# pyproject.toml — minimal pytest configuration.
+#
+# Runtime dependencies stay in requirements.txt for `pip install -r` parity.
+# This file exists primarily to point pytest at tests/ with the right
+# pythonpath, so `pytest` from the repo root discovers + runs every suite
+# without any per-file `sys.path` boilerplate.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+# Make `from src.X import Y` work in test modules without sys.path hacks.
+pythonpath = ["."]
+# Stop on first failure during CI; remove or use `--maxfail=10` to see all.
+# addopts = "-x"

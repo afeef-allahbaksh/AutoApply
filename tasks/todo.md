@@ -453,9 +453,17 @@ Top-level profile files (`profiles/{name}/*.json`):
 
 ## Phase 37: tests → `tests/` directory with pytest discovery
 
-*All 14 test suites and 102 individual checks live in `/tmp/test_*.py` today (per lesson #7 — keep tests separated from real profile data). The lesson was right about not putting test scripts that mutate state next to user data, but the cure ("put them outside the repo") made them invisible to CI/linting/any new contributor. Tests should be in `tests/` with `tmp_profile` fixtures that auto-cleanup.*
+*All 14 test suites lived in `/tmp/test_*.py` (per the early lesson — separate from real profile data). The lesson was right about not mutating real user data, but the cure made tests invisible to CI / linting / any new contributor. Phase 37 moved them into `tests/` with `pytest` discovery; the `_test_*` profile convention is the real protection.*
 
-### Plan
+### Result
+- `tests/` directory in repo with 14 test files (93 pytest-discoverable test functions)
+- `pyproject.toml` wires `pytest` to discover from `tests/` with `pythonpath = ["."]`
+- `pytest` from repo root runs everything in ~30s; each file also runnable as `python3 tests/test_X.py` for ad-hoc debugging
+- `tests/README.md` documents the conventions (hermetic, `_test_*` profiles, no network/no Claude/no browser)
+- README adds a "Tests" section; CLAUDE.md adds a Tests architecture note; lesson #7 reframed to emphasize the `_test_*` profile pattern over file location
+- `pytest>=8.0.0` added to `requirements.txt`
+
+### Shipped
 
 - [ ] Add `pyproject.toml` (pytest + pythonpath config) — minimal, just enough to wire pytest discovery to the repo root
 - [ ] Create `tests/conftest.py` with shared fixtures: `tmp_profile_name` (per-test unique name), `tmp_profile_dir` (auto-rmtree), `fresh_page` (the Playwright MagicMock pattern), `wait_for_*` helpers

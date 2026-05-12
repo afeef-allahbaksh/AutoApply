@@ -143,3 +143,12 @@ Implementation details (matcher algorithms, sync pipeline, rate limiting, task r
 ## Your data
 
 Everything personal is stored locally and gitignored. Nothing leaves your machine except API calls to Anthropic (resume tailoring, classification) and read calls to Greenhouse / Lever / your IMAP server.
+
+## Tests
+
+```bash
+pytest             # runs the full suite — 14 files, 93 tests, ~30s
+pytest -v          # verbose, lists each test function
+```
+
+Tests live in `tests/` and are hermetic — they use `_test_*` profile names that can never collide with your real `profiles/` data, mock every external service (Claude API, SMTP, IMAP, Playwright), and `shutil.rmtree` themselves on teardown. See [tests/README.md](./tests/README.md) for the conventions.
