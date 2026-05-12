@@ -7,9 +7,8 @@ from urllib.parse import quote
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
 
-from src.profile_loader import PROFILES_DIR
+from src.profile_loader import PROFILES_DIR, Profile
 from src.role_expander import expand_roles
-from src.schemas import validate_profile, validate_responses
 
 from .. import state
 from ..deps import template_context
@@ -139,17 +138,16 @@ async def setup_submit(
     else:
         profile_data["settings"]["rate_limit_seconds"] = 30
 
+    # Create the profile directory + write profile.json atomically. Profile.create
+    # validates the profile data before touching disk; on schema failure it
+    # raises before any partial state lands.
     try:
-        validate_profile(profile_data)
+        profile = Profile.create(slug, profile_data)
     except Exception as e:
         return RedirectResponse(
             url=f"/setup?err=Profile+failed+schema+validation:+{str(e)[:120].replace(' ', '+')}",
             status_code=303,
         )
-
-    with open(profile_dir / "profile.json", "w") as f:
-        json.dump(profile_data, f, indent=2)
-        f.write("\n")
 
     # Responses are optional — the user can leave fields blank and edit later
     # from Settings. Only persist non-empty values.
@@ -166,10 +164,7 @@ async def setup_submit(
             responses[key] = value.strip()
     if responses:
         try:
-            validate_responses(responses)
-            with open(profile_dir / "responses.json", "w") as f:
-                json.dump(responses, f, indent=2)
-                f.write("\n")
+            profile.save_responses(responses)
         except Exception:
             # Bad response shape shouldn't block profile creation — user can
             # fix on the Settings page.

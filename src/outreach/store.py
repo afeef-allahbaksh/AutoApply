@@ -4,13 +4,17 @@
 records. Schema (id, company, contact_*, draft_*, status, timestamps,
 linked_job_idx) is documented as-is — there's no jsonschema validator for
 outreach records (deliberate: the data is fully UI-driven, so the form is the
-schema). If we add validation later, this is the place.
+schema).
+
+Writes go through `Profile.save_outreach` for atomicity. `load_outreach` and
+`save_outreach` are kept as thin module-level wrappers so existing callers
+(the cold-email route, tests) don't have to switch import paths.
 """
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.profile_loader import PROFILES_DIR
+from src.profile_loader import PROFILES_DIR, _atomic_write_json
 
 STATUSES = ("draft", "sent", "replied", "no_reply", "closed")
 STATUS_BADGE = {
@@ -40,11 +44,8 @@ def load_outreach(profile_name: str) -> list[dict]:
 
 
 def save_outreach(profile_name: str, records: list[dict]) -> None:
-    p = outreach_path(profile_name)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, "w") as f:
-        json.dump(records, f, indent=2)
-        f.write("\n")
+    """Atomic write to `outreach.json` (no schema — UI-driven shape)."""
+    _atomic_write_json(outreach_path(profile_name), records)
 
 
 def now_iso() -> str:

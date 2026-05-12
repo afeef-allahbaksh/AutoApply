@@ -7,12 +7,12 @@ from pathlib import Path
 
 from src.ats.greenhouse import fill_greenhouse_application
 from src.ats.lever import fill_lever_application
-from src.profile_loader import PROFILES_DIR, normalize_posting_url
+from src.profile_loader import PROFILES_DIR, _atomic_write_json, normalize_posting_url
+from src.schemas import validate_applications
 from src.resume.optimizer import (
     find_cached_resume, optimize_resume,
     _optimization_hash, _slugify, save_tailored_resume, select_projects,
 )
-from src.schemas import validate_applications
 
 
 def _handle_post_submit_verification(page, verification_handler, progress_callback) -> str:
@@ -91,12 +91,19 @@ def _save_progress(profile_name: str, job: dict, fields_filled: list, custom_ans
 
 
 def _save_applications(profile_name: str, applications: list) -> None:
-    """Write applications list to disk after validation."""
-    validate_applications(applications)
-    path = PROFILES_DIR / profile_name / "applications.json"
-    with open(path, "w") as f:
-        json.dump(applications, f, indent=2)
-        f.write("\n")
+    """Write applications list to disk after validation.
+
+    Module-level helper kept because several call sites import it directly
+    (jobs.track_job, cold-email route, _process_job, test mocks). Uses the
+    `_atomic_write_json` primitive instead of going through Profile, so the
+    helper works in contexts where profile.json may not exist yet (test
+    fixtures, partial profile setup).
+    """
+    _atomic_write_json(
+        PROFILES_DIR / profile_name / "applications.json",
+        applications,
+        validate_applications,
+    )
 
 
 def _is_already_applied(applications: list, company: str, role: str, posting_url: str) -> bool:

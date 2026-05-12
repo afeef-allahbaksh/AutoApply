@@ -5,7 +5,7 @@ from pathlib import Path
 
 import requests
 
-from src.profile_loader import PROFILES_DIR
+from src.profile_loader import PROFILES_DIR, _atomic_write_json
 from src.schemas import validate_companies
 
 SEED_PATH = Path(__file__).resolve().parent.parent / "config" / "seed_companies.json"
@@ -83,12 +83,17 @@ def _load_companies(profile_name: str) -> list:
 
 
 def _save_companies(profile_name: str, companies: list) -> None:
-    """Write companies list to the profile's companies.json after validation."""
-    validate_companies(companies)
-    path = PROFILES_DIR / profile_name / "companies.json"
-    with open(path, "w") as f:
-        json.dump(companies, f, indent=2)
-        f.write("\n")
+    """Write companies list to the profile's companies.json after validation.
+
+    Uses the `_atomic_write_json` primitive so the writer works in contexts
+    where profile.json may not exist yet (initial company discovery during
+    setup, test fixtures).
+    """
+    _atomic_write_json(
+        PROFILES_DIR / profile_name / "companies.json",
+        companies,
+        validate_companies,
+    )
 
 
 def _existing_slugs(companies: list) -> set:

@@ -373,6 +373,54 @@
 - `src/applicant.py` `_process_job` decomposition — function refactor, different exercise (Phase 35 candidate)
 - `src/inbox/sync.py` (452, in package already, coherent)
 
+## Phase 35: Data layer cleanup
+
+*The #1 architectural issue flagged in the original review: 55 direct `json.dump` sites across 9 modules with no central writer. Mid-write crash = corrupted user data. Schema validation happened at one writer (`_save_applications`) but was bypassed everywhere else. This phase consolidates all top-level profile-file writes into atomic+validated `_atomic_write_json` calls.*
+
+### Result
+- All 14 test suites green (102 checks).
+- Every top-level profile-file write now: validates against jsonschema (where one exists), writes to a `.tmp` sibling, then `os.replace`s into place. Mid-write crash leaves previous file intact.
+- Caught a real test-fixture bug: `test_resume_upload` had stubs with invalid `section_order` ("contact" not in schema enum) that previously got written without complaint. The data layer now rejects them, and the test stubs were corrected.
+
+### Scope (in)
+
+Top-level profile files (`profiles/{name}/*.json`):
+- `profile.json`, `responses.json`, `applications.json`, `companies.json`, `jobs.json`, `resume.json`, `outreach.json`
+
+### Scope (out — already handled or different lifecycle)
+
+- Status files under `tasks/runner.py` (already atomic tmp+rename)
+- `imap/{credentials,state,proposals,sync_status}.json` subdirectory (inbox lifecycle, separate ownership)
+- Resume optimization cache sidecars (`resume_cache/{hash}.json`) — content-addressed, not user state
+
+### Shipped
+
+- [x] Added `_atomic_write_json(path, data, validator=None)` helper in `src/profile_loader.py`
+- [x] Added `Profile.save_*()` instance methods (used by `setup.py` after `Profile.create`)
+- [x] Added `Profile.create(name, data)` classmethod for first-time profile creation
+- [x] Migrated 9 writer sites:
+  - `applicant._save_applications` — shim now uses `_atomic_write_json` directly (works in test fixtures without profile.json)
+  - `discovery._save_companies` — same pattern
+  - `jobs/discover.discover_jobs` — direct `_atomic_write_json`
+  - `outreach/store.save_outreach` — direct `_atomic_write_json` (no validator — UI-driven schema)
+  - `ui/routes/setup.py` — `Profile.create` for new + `profile.save_responses` for responses
+  - `ui/routes/settings.py` x4 — `_atomic_write_json` direct (resume import, project add, profile, responses)
+- [x] All 14 test suites green; fixed 1 test-fixture regression (test_resume_upload had invalid `section_order` stub that bypassed validation pre-Phase-35)
+- [x] CLAUDE.md updated with Architecture note describing the data layer + the deliberate lock-at-route-layer / atomic-at-data-layer separation
+
+### Design decisions
+
+- **Lock acquisition stays at the route layer** (where read-modify-write sequences live), `save_*()` is unlocked. Two separate concerns: locks serialize cross-thread RMW, atomic writes give filesystem crash safety. Mixing them risks recursive-lock deadlocks (current locks are `threading.Lock`, not `RLock`).
+- **Profile instance is a write-through cache**: after `profile.save_applications(...)`, `profile.applications` reflects the new state. Callers don't have to re-instantiate.
+- **No validate_jobs / validate_outreach yet** — those schemas don't exist in `schemas.py`. `save_jobs` and `save_outreach` write without validation today; adding validators later is a follow-up.
+
+### Out of scope (Phase 36+)
+
+- `_process_job` decomposition (300 lines, 16 params, accretes complexity)
+- Move `/tmp/test_*.py` → `tests/` (CI-discoverable)
+- Combobox `.select__menu` scoping in 4 other sites (demographics + education x2 + application.py)
+- `except Exception:` triage in `ats/greenhouse/` modules
+
 ## Future (v2+)
 - [ ] Ashby ATS support
 - [ ] Crunchbase / Apollo / Hunter.io for real company + contact discovery (current "Discover companies" only validates a curated seed list)

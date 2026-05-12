@@ -3,9 +3,32 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 from jsonschema import ValidationError
 
-from src.schemas import validate_profile, validate_responses, validate_applications
+from src.schemas import (
+    validate_applications, validate_companies, validate_profile,
+    validate_resume, validate_responses,
+)
 
 PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
+
+
+def _atomic_write_json(path: Path, data, validator=None) -> None:
+    """Validate (if validator provided) + atomic write to `path`.
+
+    Filesystem-level crash safety: writes to a `.tmp` sibling first, then
+    `os.rename()`s into place. A mid-write crash leaves the previous file
+    intact instead of a half-written JSON.
+
+    Validation runs BEFORE the tmp file is written — a schema failure raises
+    `ValidationError` and the on-disk file is untouched.
+    """
+    if validator is not None:
+        validator(data)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    tmp.replace(path)
 
 
 def normalize_posting_url(url: str) -> str:
@@ -97,6 +120,63 @@ class Profile:
                     and normalize_posting_url(app["posting_url"]) == target):
                 return True
         return False
+
+    # ------------------------------------------------------------------------
+    # Atomic-write data layer
+    #
+    # Every top-level profile-file mutation should go through one of these
+    # methods. They validate (where a schema exists), write atomically via
+    # tmp+rename, and update the cached attribute so reads-after-write see
+    # the new state without re-instantiating.
+    #
+    # Callers remain responsible for locking the read-modify-write sequence
+    # (via `src.ui.state.profile_lock`) — the lock and atomicity are
+    # separate concerns: locks serialize cross-thread RMW, atomic writes
+    # protect against filesystem-level crashes.
+    # ------------------------------------------------------------------------
+
+    @classmethod
+    def create(cls, name: str, data: dict) -> "Profile":
+        """First-time profile creation. Used by the setup wizard.
+
+        Validates `data` against the profile schema, creates the profile
+        directory, writes `profile.json` atomically, then returns a
+        loaded Profile instance.
+        """
+        profile_dir = PROFILES_DIR / name
+        _atomic_write_json(profile_dir / "profile.json", data, validate_profile)
+        return cls(name)
+
+    def save_profile_data(self, data: dict) -> None:
+        _atomic_write_json(self.profile_dir / "profile.json", data, validate_profile)
+        self.data = data
+
+    def save_responses(self, responses: dict) -> None:
+        _atomic_write_json(self.profile_dir / "responses.json", responses, validate_responses)
+        self.responses = responses
+
+    def save_applications(self, applications: list) -> None:
+        _atomic_write_json(
+            self.profile_dir / "applications.json", applications, validate_applications,
+        )
+        self.applications = applications
+
+    def save_companies(self, companies: list) -> None:
+        _atomic_write_json(self.profile_dir / "companies.json", companies, validate_companies)
+
+    def save_jobs(self, jobs: list) -> None:
+        # No jobs.json schema in src/schemas.py today; add a validator later
+        # if we want to enforce shape.
+        _atomic_write_json(self.profile_dir / "jobs.json", jobs)
+
+    def save_resume(self, resume: dict) -> None:
+        _atomic_write_json(self.profile_dir / "resume.json", resume, validate_resume)
+
+    def save_outreach(self, records: list) -> None:
+        # Outreach schema is UI-driven (deliberate — fields evolve with the
+        # cold-email feature). Skip jsonschema validation here; the route
+        # layer is the source of truth for the record shape.
+        _atomic_write_json(self.profile_dir / "outreach.json", records)
 
     def __repr__(self) -> str:
         return f"Profile(name='{self.profile_name}')"
