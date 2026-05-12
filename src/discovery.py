@@ -1,14 +1,13 @@
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
-from pathlib import Path
 
 import requests
 
-from src.profile_loader import PROFILES_DIR, _atomic_write_json
+from src.profile_loader import CONFIG_DIR, PROFILES_DIR, _atomic_write_json
 from src.schemas import validate_companies
 
-SEED_PATH = Path(__file__).resolve().parent.parent / "config" / "seed_companies.json"
+SEED_PATH = CONFIG_DIR / "seed_companies.json"
 
 GREENHOUSE_API = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
 LEVER_API = "https://api.lever.co/v0/postings/{slug}?limit=1"

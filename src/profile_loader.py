@@ -8,7 +8,10 @@ from src.schemas import (
     validate_resume, validate_responses,
 )
 
-PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
+# Re-exported from `src.paths` so legacy `from src.profile_loader import
+# PROFILES_DIR` callers keep working. New code should import directly from
+# `src.paths`.
+from src.paths import CONFIG_DIR, PROFILES_DIR  # noqa: F401
 
 
 def _atomic_write_json(path: Path, data, validator=None) -> None:

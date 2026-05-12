@@ -1,7 +1,6 @@
 import os
 import platform
 import subprocess
-from pathlib import Path
 
 # Ensure weasyprint can find Homebrew libs on macOS
 if platform.system() == "Darwin":
@@ -14,7 +13,9 @@ if platform.system() == "Darwin":
 
 from weasyprint import HTML
 
-TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "config" / "resume_template"
+from src.profile_loader import CONFIG_DIR
+
+TEMPLATE_DIR = CONFIG_DIR / "resume_template"
 
 _css_cache: str | None = None
 

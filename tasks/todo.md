@@ -530,6 +530,19 @@ A reviewer evaluating the project will check: where are the tests? Today the ans
 - **Selector polish** — Ashby's form HTML varies less than Greenhouse's, but real-form iteration is still needed to handle company-specific customizations. Initial implementation covers the common case; expect to iterate when actually submitting through Ashby boards
 - **Workday** — explicitly deferred. Workday's auth flows are heavier (account creation gate, multi-page wizards) and inconsistent per-company
 
+## Phase 40: Companies — remove button (queued)
+
+*Real product gap surfaced during Phase 39 testing: there's no way to remove a company without manually editing `companies.json`. Three legitimate reasons to delete: recover from typos / wrong auto-detect, curate the list to targets-only, drop companies that migrated off the supported ATSes.*
+
+### Plan
+
+- Per-row hover-revealed × button in `_companies_main.html`, mirroring the application-card delete pattern
+- JS `confirm("Remove {company}?")` to prevent fat-finger deletes
+- New `POST /companies/{slug}/delete` route: lock, filter list, `_atomic_write_json`, 303 redirect to `/companies?removed={name}`
+- Does NOT delete associated applications (composite-key dedup keeps them independent — history stays intact)
+- Does NOT remove jobs.json entries (next Refresh re-fetches and naturally drops them)
+- 1 new pytest case
+
 ## Future (v2+)
 - [ ] Crunchbase / Apollo / Hunter.io for real company + contact discovery (current "Discover companies" only validates a curated seed list)
 - [ ] Workday support
