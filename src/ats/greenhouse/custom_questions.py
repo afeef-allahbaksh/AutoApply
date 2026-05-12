@@ -174,25 +174,49 @@ def handle_custom_questions(
             label_text = _get_question_text(page, q, q_id)
 
             if not label_text:
+                print(f"  [custom-q] skip {q_id}: no label/description")
                 continue
 
             tag = q.evaluate("el => el.tagName.toLowerCase()")
 
+            # Canned-response match — try both the raw key and a space-normalized
+            # variant ("visa_sponsorship" → "visa sponsorship") because labels use
+            # natural language and responses.json keys are snake_case.
             answer = None
+            method = "canned"
             label_lower = label_text.lower()
             for key, value in responses.items():
-                if key.lower() in label_lower:
+                kl = key.lower()
+                if kl in label_lower or kl.replace("_", " ") in label_lower:
                     answer = value
-                    method = "canned"
                     break
 
             role = q.get_attribute("role") or ""
 
             if role == "combobox":
-                # React Select — open, gather options, pick or claude-answer
+                # React Select — open, gather options, pick or claude-answer.
+                #
+                # CRITICAL: scope the [role="option"] query to `.select__menu`.
+                # Greenhouse boards often include an intl-tel-input phone
+                # country picker that renders 240+ <li role="option"> country
+                # elements at page load. A page-wide `[role="option"]` query
+                # picks up all of them, polluting our option list and breaking
+                # the "find matching option by text" click logic.
                 q.click()
                 time.sleep(0.5)
-                option_els = page.locator('[role="option"]').all()
+                # `.select__menu` only exists when the React Select is open.
+                # The visa dropdown's menu is the only one open at this point.
+                menu = page.locator('.select__menu').first
+                if menu.count() == 0 or not menu.is_visible(timeout=500):
+                    # Click didn't open the menu (some React Selects need a
+                    # control-wrapper click, not an input click). Try again
+                    # via the control wrapper.
+                    control = q.locator('xpath=ancestor::div[contains(@class, "select__control")]').first
+                    if control.count() > 0:
+                        control.click()
+                        time.sleep(0.5)
+                        menu = page.locator('.select__menu').first
+                option_els = menu.locator('[role="option"]').all() if menu.count() > 0 else []
                 option_labels = [o.inner_text().strip() for o in option_els if o.inner_text().strip()]
 
                 if answer is not None and option_labels:
@@ -204,30 +228,39 @@ def handle_custom_questions(
                                 break
 
                 if answer is None:
-                    if option_labels:
-                        answer = answer_select_question(
-                            label_text, option_labels, job_content,
-                            profile_data, resume_data=resume_data, responses=responses,
-                        )
-                    else:
-                        answer = answer_custom_question(
-                            label_text, job_content, profile_data,
-                            resume_data=resume_data, responses=responses,
-                        )
-                    method = "claude"
+                    try:
+                        if option_labels:
+                            answer = answer_select_question(
+                                label_text, option_labels, job_content,
+                                profile_data, resume_data=resume_data, responses=responses,
+                            )
+                        else:
+                            answer = answer_custom_question(
+                                label_text, job_content, profile_data,
+                                resume_data=resume_data, responses=responses,
+                            )
+                        method = "claude"
+                    except Exception as e:
+                        # Claude API failed — skip this combobox cleanly.
+                        # No reasonable fallback for combobox without options.
+                        print(f"  [custom-q] {q_id}: Claude call failed ({type(e).__name__}); skipping combobox")
+                        q.press("Escape")
+                        continue
 
                 matched = False
-                for opt_el in page.locator('[role="option"]').all():
-                    if opt_el.inner_text().strip() == answer:
-                        opt_el.click()
-                        matched = True
-                        break
+                # Re-scope the click query too — same reason as above.
+                if menu.count() > 0:
+                    for opt_el in menu.locator('[role="option"]').all():
+                        if opt_el.inner_text().strip() == answer:
+                            opt_el.click()
+                            matched = True
+                            break
                 if not matched:
-                    # Type and select first match
+                    # Type and select first match — React Select filters by typed input
                     q.fill("")
                     q.type(answer, delay=50)
                     time.sleep(0.8)
-                    first_opt = page.locator('[role="option"]').first
+                    first_opt = menu.locator('[role="option"]').first if menu.count() > 0 else page.locator('.select__menu [role="option"]').first
                     try:
                         if first_opt.is_visible(timeout=1000):
                             first_opt.click()
@@ -236,6 +269,7 @@ def handle_custom_questions(
                             q.press("Enter")
                     except Exception:
                         q.press("Enter")
+                print(f"  [custom-q] {q_id} ({label_text[:40]}…) → {answer[:30]!r} via {method}")
                 answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
                 q.press("Escape")
 
@@ -257,14 +291,69 @@ def handle_custom_questions(
                         continue
 
                 if answer is None:
-                    answer = answer_custom_question(
-                        label_text, job_content, profile_data,
-                        resume_data=resume_data, responses=responses,
-                    )
-                    method = "claude"
+                    try:
+                        answer = answer_custom_question(
+                            label_text, job_content, profile_data,
+                            resume_data=resume_data, responses=responses,
+                        )
+                        method = "claude"
+                    except Exception as e:
+                        # Claude API failed (out of credits, rate limit, network).
+                        # Fall through to required-field fallback rather than
+                        # crashing the whole field handler.
+                        print(f"  [custom-q] {q_id}: Claude call failed ({type(e).__name__}); will try profile fallback")
+                        answer = ""
+                        method = "claude_failed"
+
+                # Required-field fallback: if Claude punted (or crashed) on a
+                # question that's clearly asking for the applicant's location,
+                # fill with the profile location rather than leave a required
+                # field blank. The form will reject submission otherwise.
+                if (not answer or not answer.strip()) and is_required:
+                    location_keywords = ["city", "state", "country", "based",
+                                         "where do you", "where will you",
+                                         "intend to work", "work location"]
+                    if any(kw in label_lower for kw in location_keywords):
+                        loc = profile_data.get("location", "").strip()
+                        if loc:
+                            answer = loc
+                            method = "profile_fallback"
+                            print(f"  [custom-q] {q_id}: claude skipped required location field → filled with profile.location ({loc})")
+
                 if not answer or not answer.strip():
+                    print(f"  [custom-q] skip {q_id} ({label_text[:50]}): empty/SKIP answer{' (REQUIRED)' if is_required else ''}")
                     continue
+
+                # React-controlled inputs (Remix, Next.js, etc.) sometimes
+                # don't reconcile `q.fill()` — Playwright sets element.value
+                # directly but the component's state isn't updated, so React
+                # re-renders with the old empty value and overwrites our fill.
+                # Verify the value stuck; if not, fall back to click + type
+                # (each keystroke fires a real input event that React reliably
+                # consumes through its onChange flow).
                 q.fill(answer)
+                try:
+                    stuck = q.input_value() == answer
+                except Exception:
+                    stuck = False
+                if not stuck:
+                    try:
+                        q.click()
+                        q.fill("")
+                        q.type(answer, delay=20)
+                    except Exception as e:
+                        print(f"  [custom-q] {q_id}: click+type fallback failed: {e}")
+
+                # Verify final state before declaring success
+                try:
+                    final_value = q.input_value()
+                except Exception:
+                    final_value = ""
+                if final_value != answer:
+                    print(f"  [custom-q] {q_id}: value did not stick — got {final_value[:30]!r}, wanted {answer[:30]!r}")
+                    continue
+
+                print(f"  [custom-q] {q_id} ({label_text[:40]}…) → {answer[:50]!r} via {method}")
                 answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
 
             elif tag == "select":
@@ -283,17 +372,22 @@ def handle_custom_questions(
                                 break
 
                 if answer is None:
-                    if option_labels:
-                        answer = answer_select_question(
-                            label_text, option_labels, job_content,
-                            profile_data, resume_data=resume_data, responses=responses,
-                        )
-                    else:
-                        answer = answer_custom_question(
-                            label_text, job_content, profile_data,
-                            resume_data=resume_data, responses=responses,
-                        )
-                    method = "claude"
+                    try:
+                        if option_labels:
+                            answer = answer_select_question(
+                                label_text, option_labels, job_content,
+                                profile_data, resume_data=resume_data, responses=responses,
+                            )
+                        else:
+                            answer = answer_custom_question(
+                                label_text, job_content, profile_data,
+                                resume_data=resume_data, responses=responses,
+                            )
+                        method = "claude"
+                    except Exception as e:
+                        # Claude API failed — skip this native select.
+                        print(f"  [custom-q] {q_id}: Claude call failed ({type(e).__name__}); skipping native select")
+                        continue
                 try:
                     q.select_option(label=answer)
                     answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
@@ -301,7 +395,19 @@ def handle_custom_questions(
                     if fuzzy_match_options(q, answer):
                         answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
 
-        except Exception:
+        except Exception as e:
+            # One bad field shouldn't kill the rest. Log so we can diagnose
+            # later instead of silently dropping. If we're inside a combobox
+            # branch with the dropdown still open, close it before moving on
+            # — otherwise the next field's selectors get confused by a
+            # phantom open dropdown.
+            qid_for_log = q_id if 'q_id' in locals() else '?'
+            label_for_log = label_text[:50] if 'label_text' in locals() and label_text else '?'
+            print(f"  [custom-q] FAILED {qid_for_log} ({label_for_log}): {type(e).__name__}: {e}")
+            try:
+                q.press("Escape")
+            except Exception:
+                pass
             continue
 
     return answered

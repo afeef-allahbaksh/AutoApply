@@ -8,7 +8,7 @@ task runner.
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from src.profile_loader import PROFILES_DIR
+from src.profile_loader import PROFILES_DIR, _atomic_write_json
 
 from .classify import classify_jobs_by_country, classify_jobs_by_level, score_jobs_fit
 from .clients.greenhouse import fetch_greenhouse_jobs
@@ -211,9 +211,6 @@ def discover_jobs(profile_name: str, on_progress=None, cancel_check=None) -> lis
 
     # Save to jobs.json (cancelled runs exit before this point so jobs.json is untouched)
     _emit(phase="saving", message="Saving jobs.json…")
-    jobs_path = profile_dir / "jobs.json"
-    with open(jobs_path, "w") as f:
-        json.dump(new_jobs, f, indent=2)
-        f.write("\n")
+    _atomic_write_json(profile_dir / "jobs.json", new_jobs)
 
     return new_jobs

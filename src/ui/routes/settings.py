@@ -7,10 +7,10 @@ from fastapi.responses import RedirectResponse
 
 from src.inbox import auth as inbox_auth
 from src.inbox.auth import ImapCredentials
-from src.profile_loader import PROFILES_DIR
+from src.profile_loader import PROFILES_DIR, Profile, _atomic_write_json
 from src.resume.parser import parse_pdf_to_resume
 from src.role_expander import expand_roles
-from src.schemas import validate_profile, validate_responses
+from src.schemas import validate_profile, validate_resume, validate_responses
 
 from .. import state
 from ..deps import template_context
@@ -68,17 +68,19 @@ def _parse_pdf_bytes(pdf_bytes: bytes) -> dict:
 
 def _import_resume_from_bytes(profile_name: str, pdf_bytes: bytes) -> dict:
     """Parse PDF bytes and overwrite resume.json. Returns the parsed dict.
-    Raises ValueError for size limits and propagates parser exceptions."""
+    Raises ValueError for size limits and propagates parser exceptions.
+    Writes are atomic via `_atomic_write_json` — works even before profile.json
+    exists (resume import is sometimes the first thing done in setup)."""
     if len(pdf_bytes) == 0:
         raise ValueError("Empty file.")
     if len(pdf_bytes) > MAX_PDF_BYTES:
         raise ValueError(f"File too large (>{MAX_PDF_BYTES // (1024 * 1024)}MB).")
     resume_data = _parse_pdf_bytes(pdf_bytes)
-    output = PROFILES_DIR / profile_name / "resume.json"
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with open(output, "w") as f:
-        json.dump(resume_data, f, indent=2)
-        f.write("\n")
+    _atomic_write_json(
+        PROFILES_DIR / profile_name / "resume.json",
+        resume_data,
+        validate_resume,
+    )
     return resume_data
 
 
@@ -115,9 +117,7 @@ def _add_projects_from_bytes(profile_name: str, pdf_bytes: bytes) -> dict:
 
     if added_names:
         resume_data["project_pool"] = pool
-        with open(resume_path, "w") as f:
-            json.dump(resume_data, f, indent=2)
-            f.write("\n")
+        _atomic_write_json(resume_path, resume_data, validate_resume)
     return {
         "added": len(added_names),
         "total": len(pool),
@@ -127,11 +127,12 @@ def _add_projects_from_bytes(profile_name: str, pdf_bytes: bytes) -> dict:
 
 
 def _write_profile(profile_name: str, data: dict) -> None:
-    validate_profile(data)
-    path = PROFILES_DIR / profile_name / "profile.json"
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
+    """Atomic + validated write to profile.json."""
+    _atomic_write_json(
+        PROFILES_DIR / profile_name / "profile.json",
+        data,
+        validate_profile,
+    )
 
 
 def _read_responses(profile_name: str) -> dict:
@@ -143,11 +144,12 @@ def _read_responses(profile_name: str) -> dict:
 
 
 def _write_responses(profile_name: str, data: dict) -> None:
-    validate_responses(data)
-    path = PROFILES_DIR / profile_name / "responses.json"
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
+    """Atomic + validated write to responses.json."""
+    _atomic_write_json(
+        PROFILES_DIR / profile_name / "responses.json",
+        data,
+        validate_responses,
+    )
 
 
 def _split_csv(s: str) -> list[str]:

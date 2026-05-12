@@ -7,8 +7,10 @@ front so the browser never opens for an all-dupes selection.
 import json
 from pathlib import Path
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from src.applicant import _process_job
 from src.browser import get_browser_context
@@ -149,6 +151,18 @@ def _batch_apply_worker(
                 except prompt.PromptCancelled:
                     return "skip"
 
+            def verification_handler(email: str) -> str:
+                try:
+                    return prompt.ask(
+                        sf,
+                        f"Email verification needed — Greenhouse sent an 8-character code to {email}. "
+                        "Check your inbox, enter the 8 digits into the browser, then click Verified below.",
+                        choices=["verified", "skip"],
+                        poll_interval=0.5,
+                    )
+                except prompt.PromptCancelled:
+                    return "skip"
+
             def progress(**kw):
                 runner.write_status(sf, **kw)
 
@@ -186,6 +200,7 @@ def _batch_apply_worker(
                         i, total,
                         captcha_handler=captcha_handler,
                         submit_handler=submit_handler,
+                        verification_handler=verification_handler,
                         progress_callback=progress,
                     )
                     job_status = per_job_results[0]["status"] if per_job_results else "failed"
@@ -251,7 +266,7 @@ def _batch_apply_worker(
 
 
 @router.get("/apply/batch")
-def batch_apply_page(request: Request):
+def batch_apply_page(request: Request, msg: str = "", err: str = ""):
     profile_name = state.active_profile()
     status = _read_batch_status(profile_name)
     return templates.TemplateResponse(
@@ -260,8 +275,8 @@ def batch_apply_page(request: Request):
             request,
             page_title="Batch apply",
             status=status,
-            msg="",
-            err="",
+            msg=msg,
+            err=err,
             **_batch_flags(status),
         ),
     )
@@ -273,13 +288,20 @@ def start_batch_apply(
     job_indices: list[int] = Form(default=[]),
     dry_run: str = Form(""),
 ):
-    """Spawn the batch worker. Shares task key `apply:{profile}` with single-job
-    apply, so either mode blocks the other."""
+    """Spawn the batch worker, then redirect to GET /apply/batch (PRG pattern).
+
+    The Jobs-page form is a plain HTML submit (not HTMX), so returning a
+    partial here would render naked on the browser. Redirect lands the user
+    on the full styled page that polls for progress.
+
+    Shares task key `apply:{profile}` with single-job apply, so either mode
+    blocks the other.
+    """
     profile_name = state.active_profile()
     if not profile_name:
-        return _render_batch_main(request, profile_name, err="No active profile.")
+        return RedirectResponse(url=f"/apply/batch?err={quote('No active profile.')}", status_code=303)
     if not job_indices:
-        return _render_batch_main(request, profile_name, err="No jobs selected.")
+        return RedirectResponse(url=f"/apply/batch?err={quote('No jobs selected.')}", status_code=303)
 
     is_dry_run = bool(dry_run)
     started, msg = runner.start_task(
@@ -304,12 +326,10 @@ def start_batch_apply(
         already_running_msg="Another apply task is already running for this profile.",
     )
     if not started:
-        return _render_batch_main(request, profile_name, err=msg)
+        return RedirectResponse(url=f"/apply/batch?err={quote(msg)}", status_code=303)
     mode = "dry run" if is_dry_run else "real submit"
-    return _render_batch_main(
-        request, profile_name,
-        msg=f"Batch apply started ({mode}, {len(job_indices)} job(s)).",
-    )
+    summary = f"Batch apply started ({mode}, {len(job_indices)} job(s))."
+    return RedirectResponse(url=f"/apply/batch?msg={quote(summary)}", status_code=303)
 
 
 @router.get("/apply/batch/status")
