@@ -194,10 +194,29 @@ def handle_custom_questions(
             role = q.get_attribute("role") or ""
 
             if role == "combobox":
-                # React Select — open, gather options, pick or claude-answer
+                # React Select — open, gather options, pick or claude-answer.
+                #
+                # CRITICAL: scope the [role="option"] query to `.select__menu`.
+                # Greenhouse boards often include an intl-tel-input phone
+                # country picker that renders 240+ <li role="option"> country
+                # elements at page load. A page-wide `[role="option"]` query
+                # picks up all of them, polluting our option list and breaking
+                # the "find matching option by text" click logic.
                 q.click()
                 time.sleep(0.5)
-                option_els = page.locator('[role="option"]').all()
+                # `.select__menu` only exists when the React Select is open.
+                # The visa dropdown's menu is the only one open at this point.
+                menu = page.locator('.select__menu').first
+                if menu.count() == 0 or not menu.is_visible(timeout=500):
+                    # Click didn't open the menu (some React Selects need a
+                    # control-wrapper click, not an input click). Try again
+                    # via the control wrapper.
+                    control = q.locator('xpath=ancestor::div[contains(@class, "select__control")]').first
+                    if control.count() > 0:
+                        control.click()
+                        time.sleep(0.5)
+                        menu = page.locator('.select__menu').first
+                option_els = menu.locator('[role="option"]').all() if menu.count() > 0 else []
                 option_labels = [o.inner_text().strip() for o in option_els if o.inner_text().strip()]
 
                 if answer is not None and option_labels:
@@ -222,17 +241,19 @@ def handle_custom_questions(
                     method = "claude"
 
                 matched = False
-                for opt_el in page.locator('[role="option"]').all():
-                    if opt_el.inner_text().strip() == answer:
-                        opt_el.click()
-                        matched = True
-                        break
+                # Re-scope the click query too — same reason as above.
+                if menu.count() > 0:
+                    for opt_el in menu.locator('[role="option"]').all():
+                        if opt_el.inner_text().strip() == answer:
+                            opt_el.click()
+                            matched = True
+                            break
                 if not matched:
-                    # Type and select first match
+                    # Type and select first match — React Select filters by typed input
                     q.fill("")
                     q.type(answer, delay=50)
                     time.sleep(0.8)
-                    first_opt = page.locator('[role="option"]').first
+                    first_opt = menu.locator('[role="option"]').first if menu.count() > 0 else page.locator('.select__menu [role="option"]').first
                     try:
                         if first_opt.is_visible(timeout=1000):
                             first_opt.click()
@@ -241,6 +262,7 @@ def handle_custom_questions(
                             q.press("Enter")
                     except Exception:
                         q.press("Enter")
+                print(f"  [custom-q] {q_id} ({label_text[:40]}…) → {answer[:30]!r} via {method}")
                 answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
                 q.press("Escape")
 
@@ -287,6 +309,7 @@ def handle_custom_questions(
                     print(f"  [custom-q] skip {q_id} ({label_text[:50]}): empty/SKIP answer{' (REQUIRED)' if is_required else ''}")
                     continue
                 q.fill(answer)
+                print(f"  [custom-q] {q_id} ({label_text[:40]}…) → {answer[:50]!r} via {method}")
                 answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
 
             elif tag == "select":
