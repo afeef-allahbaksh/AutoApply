@@ -530,18 +530,37 @@ A reviewer evaluating the project will check: where are the tests? Today the ans
 - **Selector polish** — Ashby's form HTML varies less than Greenhouse's, but real-form iteration is still needed to handle company-specific customizations. Initial implementation covers the common case; expect to iterate when actually submitting through Ashby boards
 - **Workday** — explicitly deferred. Workday's auth flows are heavier (account creation gate, multi-page wizards) and inconsistent per-company
 
-## Phase 40: Companies — remove button (queued)
+## Phase 40: Companies — remove button
 
 *Real product gap surfaced during Phase 39 testing: there's no way to remove a company without manually editing `companies.json`. Three legitimate reasons to delete: recover from typos / wrong auto-detect, curate the list to targets-only, drop companies that migrated off the supported ATSes.*
 
-### Plan
+### Shipped
+- [x] Per-row hover-revealed × button in `_companies_main.html` (HTMX `hx-confirm` instead of plain JS `confirm()` to route through the new themed-modal interceptor from Phase 41)
+- [x] `POST /companies/{slug}/delete` route — acquires `state.profile_lock`, filters list by slug, writes via `_save_companies` (→ `_atomic_write_json`), returns the re-rendered `#companies-content` partial with a "Removed {name}." flash banner
+- [x] Applications kept intact (composite-key dedup keeps them independent — history stays). jobs.json untouched (next Refresh naturally drops orphans)
+- [x] 6 new pytest cases in `tests/test_companies_delete.py` (removes correct slug, leaves apps + jobs intact, 404 on unknown slug, lowercases path param, partial render shows surviving rows)
 
-- Per-row hover-revealed × button in `_companies_main.html`, mirroring the application-card delete pattern
-- JS `confirm("Remove {company}?")` to prevent fat-finger deletes
-- New `POST /companies/{slug}/delete` route: lock, filter list, `_atomic_write_json`, 303 redirect to `/companies?removed={name}`
-- Does NOT delete associated applications (composite-key dedup keeps them independent — history stays intact)
-- Does NOT remove jobs.json entries (next Refresh re-fetches and naturally drops them)
-- 1 new pytest case
+## Phase 41: Frontend cleanup pass
+
+*UI audit + refactor. Goal: drop Tailwind CDN (zero usage), de-duplicate inline `style=""` patterns into utility classes, split base.html's bundled CSS+JS into cacheable static files, fix accessibility gaps, replace native `window.confirm()` with a themed modal everywhere.*
+
+### Shipped
+- [x] **Tailwind CDN removed** — grep confirmed zero utility-class usage (only `grid` and `text-link` matched, and `text-link` is ours). The app has its own design system (`btn-*`, `glass-card`, `badge-*`, `pill-input`). ~3.3MB JS removed from every page load
+- [x] **Static asset split** — `base.html` 793 → 122 lines. `src/ui/static/css/app.css` (design tokens + components + utility classes + confirm-modal + danger-disclosure + overflow-menu + form-label rules). `src/ui/static/js/app.js` (file-drop, themed-confirm `htmx:confirm` interceptor, overflow-menu event delegation, type-to-confirm live validation, generic modal opener via `[data-open-modal]`). FastAPI mounts `/static` via `StaticFiles`. Cacheable across requests now
+- [x] **Utility classes** — `.flash-banner` / `.flash-banner-block` / `.flash-banner-block-lg` / `.form-label` / `.form-input-full` / `.section-label-soft` / `.link-accent` / `.toolbar-row` / `.form-stack` / `.btn-danger`. ~213 inline-style substitutions across 17 templates. Total `style=""` count 543 → 309 (-43%)
+- [x] **Themed confirm modal** — generic `htmx:confirm` interceptor. Backdrop + glass-card + Cancel/Confirm buttons matching the design system. Keyboard: Enter confirms, Escape cancels, backdrop click cancels. Covers all 5 `hx-confirm` sites (companies delete, app card delete, cold-email send/delete, bulk-generate)
+- [x] **Profile delete moved to sidebar** — `[⋯]` menu next to the profile dropdown, available from every page (not just Settings). Items: "+ New profile" (was a separate link) and "Delete this profile". Click delete → themed modal with type-to-confirm input (live-validated; Delete button disabled until typed text matches profile name). Server-side `confirm == name` validation is the real safeguard
+- [x] **Jobs row overflow menu** — was 5 widgets (Optimize / Apply / [status dropdown] / Track / ×) crammed into one cell. Now Optimize + Apply visible, plus `[⋯]` overflow with Track-as form + Remove. Column shrinks from forced 420px back to natural ~180px. Dropped the redundant "Relevance" column (kept Fit — the Claude-scored signal)
+- [x] **Per-row job delete** — `POST /jobs/{idx}/delete` removes from `jobs.json` by index. Applications referencing the job stay intact. Discover may re-add on next run (it's a "hide for now" curation tool, not a permanent block). 6 new pytest cases. Reuses the existing `.menu-trigger` / `.menu-panel` classes — no new primitives
+- [x] **Form-label a11y fix** — every `<label class="form-label">` now carries `for="{name}"`; matching `<input id="{name}">` added to all 42 form controls. 2 misused `<label>` decorative section headings switched to `<div>`. Result: 0 unlinked labels (was 44). WCAG 1.3.1 / 4.1.2 compliance for the form-heavy pages (settings/setup/jobs filter/cold-email/companies-add)
+
+### Out of scope (followups)
+- [ ] **Vendor HTMX locally** — still loads from `unpkg.com/htmx.org@1.9.12` CDN, ~50KB, render-blocking. Same pattern as the Tailwind removal. Worth ~5 min to fix; left for a future pass
+- [ ] **309 remaining inline `style=""`** — long-tail bespoke padding/spacing, mostly one-offs. Diminishing returns past today's pass; revisit if a specific page needs another design tweak
+- [ ] **Keyboard-focus styles for `.btn-*`** — currently relies on browser defaults. Explicit `:focus-visible` styling would improve keyboard-nav UX
+
+## Followups (small, not-yet-phased)
+- [ ] **Flaky test in `tests/test_batch_apply.py::test_cancel_mid_batch_marks_remaining_not_attempted`** — passes solo, occasionally fails in suite order. Pre-existing daemon-thread bleed between batch_apply tests (daemon workers from earlier tests leak state into the cancel path). The teardown attempts to cancel stragglers but isn't bulletproof. Real fix: proper thread join in fixture teardown so each test starts from a known-empty thread registry
 
 ## Future (v2+)
 - [ ] Crunchbase / Apollo / Hunter.io for real company + contact discovery (current "Discover companies" only validates a curated seed list)
@@ -551,3 +570,5 @@ A reviewer evaluating the project will check: where are the tests? Today the ans
 - [ ] Background daemon mode for periodic inbox sync without dashboard open
 - [ ] Multi-account inbox (currently single IMAP account per profile)
 - [ ] Deployment shift — currently local-first / single-user / no auth; see `project_deployment_target.md` memory for the move-to-Vercel-or-similar blockers
+- [ ] Migrate JSON files → SQLite once `applications.json` outgrows append-with-rewrite (the atomic-write + jsonschema layer is the right shape to swap the backing store underneath)
+- [ ] GitHub Actions: pytest + mypy + ruff on every push (portfolio signal)
