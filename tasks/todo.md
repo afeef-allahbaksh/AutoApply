@@ -555,12 +555,12 @@ A reviewer evaluating the project will check: where are the tests? Today the ans
 - [x] **Form-label a11y fix** — every `<label class="form-label">` now carries `for="{name}"`; matching `<input id="{name}">` added to all 42 form controls. 2 misused `<label>` decorative section headings switched to `<div>`. Result: 0 unlinked labels (was 44). WCAG 1.3.1 / 4.1.2 compliance for the form-heavy pages (settings/setup/jobs filter/cold-email/companies-add)
 
 ### Out of scope (followups)
-- [ ] **Vendor HTMX locally** — still loads from `unpkg.com/htmx.org@1.9.12` CDN, ~50KB, render-blocking. Same pattern as the Tailwind removal. Worth ~5 min to fix; left for a future pass
+- [x] ~~**Vendor HTMX locally**~~ — shipped: `src/ui/static/js/htmx.min.js` (48KB), loaded via `<script src="/static/js/htmx.min.js" defer>`. Both htmx + app.js use `defer` so they execute in document order (htmx first, then app.js's `htmx:confirm` listener)
+- [x] ~~**Keyboard-focus styles for `.btn-*`**~~ — shipped: `:focus-visible` declarations on btn-primary/secondary/ghost/danger. Mouse clicks don't trigger the ring (per spec); keyboard nav now shows the indigo accent-glow halo
 - [ ] **309 remaining inline `style=""`** — long-tail bespoke padding/spacing, mostly one-offs. Diminishing returns past today's pass; revisit if a specific page needs another design tweak
-- [ ] **Keyboard-focus styles for `.btn-*`** — currently relies on browser defaults. Explicit `:focus-visible` styling would improve keyboard-nav UX
 
 ## Followups (small, not-yet-phased)
-- [ ] **Flaky test in `tests/test_batch_apply.py::test_cancel_mid_batch_marks_remaining_not_attempted`** — passes solo, occasionally fails in suite order. Pre-existing daemon-thread bleed between batch_apply tests (daemon workers from earlier tests leak state into the cancel path). The teardown attempts to cancel stragglers but isn't bulletproof. Real fix: proper thread join in fixture teardown so each test starts from a known-empty thread registry
+- [x] ~~**Flaky test in `tests/test_batch_apply.py::test_cancel_mid_batch_marks_remaining_not_attempted`**~~ — fixed. Root cause was NOT daemon-thread bleed (the earlier guess in lessons.md was wrong); it was a race between `request_cancel` and the `submit_handler` polling in `prompt.ask`. The handler caught `PromptCancelled` and returned `"skip"`, so a cancel mid-prompt fell through `_decide_submit_action` as a real user-skip and got recorded as "skipped" instead of "not_attempted". Fix in `src/ui/routes/apply/batch.py`: handlers no longer swallow `PromptCancelled`; the loop body catches it and skips the `_append_completed` so the cleanup pass marks the index as `not_attempted`. 5/5 in-suite runs pass post-fix (was 3/5 failing)
 
 ## Future (v2+)
 - [ ] Crunchbase / Apollo / Hunter.io for real company + contact discovery (current "Discover companies" only validates a curated seed list)

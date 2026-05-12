@@ -131,37 +131,34 @@ def _batch_apply_worker(
         page = context.new_page()
 
         try:
+            # NB: handlers DO NOT catch PromptCancelled. Letting it propagate
+            # lets the loop body distinguish "user clicked skip" (record as
+            # skipped) from "cancel raced mid-prompt" (record as not_attempted
+            # via the cleanup pass). The same logic applies to all three
+            # handlers — a cancel that fires while CAPTCHA/verification is
+            # pending should also be recorded as not_attempted, not skipped.
             def captcha_handler():
-                try:
-                    return prompt.ask(
-                        sf, "CAPTCHA detected — solve it in the browser, then click Continue.",
-                        choices=["continue", "skip"],
-                        poll_interval=0.5,
-                    )
-                except prompt.PromptCancelled:
-                    return "skip"
+                return prompt.ask(
+                    sf, "CAPTCHA detected — solve it in the browser, then click Continue.",
+                    choices=["continue", "skip"],
+                    poll_interval=0.5,
+                )
 
             def submit_handler():
-                try:
-                    return prompt.ask(
-                        sf, "Form filled. Review the screenshot/browser, then choose:",
-                        choices=["submit", "skip", "quit"],
-                        poll_interval=0.5,
-                    )
-                except prompt.PromptCancelled:
-                    return "skip"
+                return prompt.ask(
+                    sf, "Form filled. Review the screenshot/browser, then choose:",
+                    choices=["submit", "skip", "quit"],
+                    poll_interval=0.5,
+                )
 
             def verification_handler(email: str) -> str:
-                try:
-                    return prompt.ask(
-                        sf,
-                        f"Email verification needed — Greenhouse sent an 8-character code to {email}. "
-                        "Check your inbox, enter the 8 digits into the browser, then click Verified below.",
-                        choices=["verified", "skip"],
-                        poll_interval=0.5,
-                    )
-                except prompt.PromptCancelled:
-                    return "skip"
+                return prompt.ask(
+                    sf,
+                    f"Email verification needed — Greenhouse sent an 8-character code to {email}. "
+                    "Check your inbox, enter the 8 digits into the browser, then click Verified below.",
+                    choices=["verified", "skip"],
+                    poll_interval=0.5,
+                )
 
             def progress(**kw):
                 runner.write_status(sf, **kw)
@@ -190,6 +187,8 @@ def _batch_apply_worker(
                 )
 
                 per_job_results: list[dict] = []
+                record_this_job = True
+                job_status = "failed"
                 try:
                     quit_loop = _process_job(
                         page, context, job, profile, resume_data, None,
@@ -204,6 +203,13 @@ def _batch_apply_worker(
                         progress_callback=progress,
                     )
                     job_status = per_job_results[0]["status"] if per_job_results else "failed"
+                except prompt.PromptCancelled:
+                    # Cancel fired while a prompt was pending. Don't record this
+                    # idx — the cleanup pass below marks it as not_attempted,
+                    # which is the right signal for "we never got the user's
+                    # actual intent on this job" (vs "skipped" = explicit skip).
+                    print(f"  [batch] job {item['idx']} cancelled mid-prompt — not_attempted")
+                    record_this_job = False
                 except Exception as e:  # noqa: BLE001 — one bad job shouldn't kill the batch
                     print(f"  [batch] job {item['idx']} crashed: {e}")
                     import traceback
@@ -211,14 +217,17 @@ def _batch_apply_worker(
                     traceback.print_exc(file=sys.stderr)
                     job_status = "failed"
 
-                _append_completed(sf, {
-                    "idx": item["idx"],
-                    "company": item["company"],
-                    "role": item["role"],
-                    "status": job_status,
-                })
+                if record_this_job:
+                    _append_completed(sf, {
+                        "idx": item["idx"],
+                        "company": item["company"],
+                        "role": item["role"],
+                        "status": job_status,
+                    })
 
                 if quit_loop:
+                    break
+                if runner.is_cancel_requested(sf):
                     break
 
             # Cancel can break before _process_job runs (top-of-loop check),

@@ -268,6 +268,19 @@ main > header.page-head h1 {
   box-shadow: 0 2px 4px rgba(91, 108, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+/* Keyboard-only focus ring (mouse clicks don't trigger :focus-visible). */
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-ghost:focus-visible,
+.btn-danger:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-accent-glow), var(--shadow-subtle);
+}
+.btn-primary:focus-visible {
+  box-shadow: var(--shadow-accent-glow),
+              0 2px 6px rgba(91, 108, 255, 0.3),
+              inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
 
 .btn-ghost {
   display: inline-flex; align-items: center; gap: 0.5rem;
