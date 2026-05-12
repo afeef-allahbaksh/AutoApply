@@ -308,7 +308,36 @@ def handle_custom_questions(
                 if not answer or not answer.strip():
                     print(f"  [custom-q] skip {q_id} ({label_text[:50]}): empty/SKIP answer{' (REQUIRED)' if is_required else ''}")
                     continue
+
+                # React-controlled inputs (Remix, Next.js, etc.) sometimes
+                # don't reconcile `q.fill()` — Playwright sets element.value
+                # directly but the component's state isn't updated, so React
+                # re-renders with the old empty value and overwrites our fill.
+                # Verify the value stuck; if not, fall back to click + type
+                # (each keystroke fires a real input event that React reliably
+                # consumes through its onChange flow).
                 q.fill(answer)
+                try:
+                    stuck = q.input_value() == answer
+                except Exception:
+                    stuck = False
+                if not stuck:
+                    try:
+                        q.click()
+                        q.fill("")
+                        q.type(answer, delay=20)
+                    except Exception as e:
+                        print(f"  [custom-q] {q_id}: click+type fallback failed: {e}")
+
+                # Verify final state before declaring success
+                try:
+                    final_value = q.input_value()
+                except Exception:
+                    final_value = ""
+                if final_value != answer:
+                    print(f"  [custom-q] {q_id}: value did not stick — got {final_value[:30]!r}, wanted {answer[:30]!r}")
+                    continue
+
                 print(f"  [custom-q] {q_id} ({label_text[:40]}…) → {answer[:50]!r} via {method}")
                 answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
 
