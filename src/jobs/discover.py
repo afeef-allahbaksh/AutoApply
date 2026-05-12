@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.profile_loader import PROFILES_DIR, _atomic_write_json
 
 from .classify import classify_jobs_by_country, classify_jobs_by_level, score_jobs_fit
+from .clients.ashby import fetch_ashby_jobs
 from .clients.greenhouse import fetch_greenhouse_jobs
 from .clients.lever import fetch_lever_jobs
 from .filter import deduplicate_jobs, filter_jobs
@@ -24,6 +25,8 @@ def fetch_jobs_for_company(company: dict) -> list[dict]:
         return fetch_greenhouse_jobs(slug)
     elif ats == "lever":
         return fetch_lever_jobs(slug)
+    elif ats == "ashby":
+        return fetch_ashby_jobs(slug)
     return []
 
 

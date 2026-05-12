@@ -113,14 +113,17 @@ def add_company(
             if not result:
                 result = validate_slug(slug, "lever")
                 detected = "lever"
-        elif ats in ("greenhouse", "lever"):
+            if not result:
+                result = validate_slug(slug, "ashby")
+                detected = "ashby"
+        elif ats in ("greenhouse", "lever", "ashby"):
             result = validate_slug(slug, ats)
             detected = ats
         else:
             raise HTTPException(status_code=400, detail=f"invalid ats: {ats}")
 
         if not result:
-            target = "Greenhouse or Lever" if ats == "auto" else ats
+            target = "Greenhouse, Lever, or Ashby" if ats == "auto" else ats
             return _render_companies_main(
                 request, profile_name,
                 error=f"Could not find '{slug}' on {target}.",

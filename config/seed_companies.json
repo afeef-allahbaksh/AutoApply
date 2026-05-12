@@ -1,47 +1,214 @@
 [
-  {"slug": "anthropic", "ats": "greenhouse"},
-  {"slug": "stripe", "ats": "greenhouse"},
-  {"slug": "databricks", "ats": "greenhouse"},
-  {"slug": "figma", "ats": "greenhouse"},
-  {"slug": "coinbase", "ats": "greenhouse"},
-  {"slug": "discord", "ats": "greenhouse"},
-  {"slug": "duolingo", "ats": "greenhouse"},
-  {"slug": "brex", "ats": "greenhouse"},
-  {"slug": "airtable", "ats": "greenhouse"},
-  {"slug": "verkada", "ats": "greenhouse"},
-  {"slug": "cloudflare", "ats": "greenhouse"},
-  {"slug": "datadog", "ats": "greenhouse"},
-  {"slug": "twilio", "ats": "greenhouse"},
-  {"slug": "elastic", "ats": "greenhouse"},
-  {"slug": "pagerduty", "ats": "greenhouse"},
-  {"slug": "gitlab", "ats": "greenhouse"},
-  {"slug": "asana", "ats": "greenhouse"},
-  {"slug": "gusto", "ats": "greenhouse"},
-  {"slug": "robinhood", "ats": "greenhouse"},
-  {"slug": "chime", "ats": "greenhouse"},
-  {"slug": "vercel", "ats": "greenhouse"},
-  {"slug": "webflow", "ats": "greenhouse"},
-  {"slug": "flexport", "ats": "greenhouse"},
-  {"slug": "samsara", "ats": "greenhouse"},
-  {"slug": "scaleai", "ats": "greenhouse"},
-  {"slug": "cockroachlabs", "ats": "greenhouse"},
-  {"slug": "zscaler", "ats": "greenhouse"},
-  {"slug": "postman", "ats": "greenhouse"},
-  {"slug": "applovin", "ats": "greenhouse"},
-  {"slug": "mercury", "ats": "greenhouse"},
-  {"slug": "calendly", "ats": "greenhouse"},
-  {"slug": "typeform", "ats": "greenhouse"},
-  {"slug": "fivetran", "ats": "greenhouse"},
-  {"slug": "amplitude", "ats": "greenhouse"},
-  {"slug": "mixpanel", "ats": "greenhouse"},
-  {"slug": "twitch", "ats": "greenhouse"},
-  {"slug": "lyft", "ats": "greenhouse"},
-  {"slug": "instacart", "ats": "greenhouse"},
-  {"slug": "airbnb", "ats": "greenhouse"},
-  {"slug": "pinterest", "ats": "greenhouse"},
-  {"slug": "reddit", "ats": "greenhouse"},
-  {"slug": "dropbox", "ats": "greenhouse"},
-  {"slug": "squarespace", "ats": "greenhouse"},
-  {"slug": "watershed", "ats": "greenhouse"},
-  {"slug": "spotify", "ats": "lever"}
+  {
+    "slug": "anthropic",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "stripe",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "databricks",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "figma",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "coinbase",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "discord",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "duolingo",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "brex",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "airtable",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "verkada",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "cloudflare",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "datadog",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "twilio",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "elastic",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "pagerduty",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "gitlab",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "asana",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "gusto",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "robinhood",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "chime",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "vercel",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "webflow",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "flexport",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "samsara",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "scaleai",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "cockroachlabs",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "zscaler",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "postman",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "applovin",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "mercury",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "calendly",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "typeform",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "fivetran",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "amplitude",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "mixpanel",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "twitch",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "lyft",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "instacart",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "airbnb",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "pinterest",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "reddit",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "dropbox",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "squarespace",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "watershed",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "spotify",
+    "ats": "lever"
+  },
+  {
+    "slug": "notion",
+    "ats": "ashby"
+  },
+  {
+    "slug": "linear",
+    "ats": "ashby"
+  },
+  {
+    "slug": "ramp",
+    "ats": "ashby"
+  },
+  {
+    "slug": "openai",
+    "ats": "ashby"
+  },
+  {
+    "slug": "perplexity",
+    "ats": "ashby"
+  },
+  {
+    "slug": "mercury",
+    "ats": "ashby"
+  },
+  {
+    "slug": "elevenlabs",
+    "ats": "ashby"
+  },
+  {
+    "slug": "anysphere",
+    "ats": "ashby"
+  }
 ]

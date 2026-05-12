@@ -12,6 +12,7 @@ SEED_PATH = Path(__file__).resolve().parent.parent / "config" / "seed_companies.
 
 GREENHOUSE_API = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
 LEVER_API = "https://api.lever.co/v0/postings/{slug}?limit=1"
+ASHBY_API = "https://api.ashbyhq.com/posting-api/job-board/{slug}"
 
 HEADERS = {"User-Agent": "AutoApply/1.0"}
 TIMEOUT = 10
@@ -63,12 +64,41 @@ def validate_lever_slug(slug: str) -> dict | None:
     }
 
 
+def validate_ashby_slug(slug: str) -> dict | None:
+    """Hit Ashby API for a slug. Returns company dict or None if invalid.
+
+    Ashby's public board endpoint returns 200 with an empty `jobs` array for
+    valid orgs that happen to have no openings, so we accept any 200 with the
+    expected JSON shape (a `jobs` key) as proof of a valid slug.
+    """
+    url = ASHBY_API.format(slug=slug)
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError):
+        return None
+
+    if not isinstance(data, dict) or "jobs" not in data:
+        return None
+
+    return {
+        "name": slug.title(),
+        "ats": "ashby",
+        "slug": slug,
+        "careers_url": f"https://jobs.ashbyhq.com/{slug}",
+        "added": date.today().isoformat(),
+    }
+
+
 def validate_slug(slug: str, ats: str) -> dict | None:
     """Validate a slug against the appropriate ATS API."""
     if ats == "greenhouse":
         return validate_greenhouse_slug(slug)
     elif ats == "lever":
         return validate_lever_slug(slug)
+    elif ats == "ashby":
+        return validate_ashby_slug(slug)
     return None
 
 
