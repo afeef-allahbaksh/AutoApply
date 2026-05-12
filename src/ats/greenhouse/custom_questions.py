@@ -174,16 +174,21 @@ def handle_custom_questions(
             label_text = _get_question_text(page, q, q_id)
 
             if not label_text:
+                print(f"  [custom-q] skip {q_id}: no label/description")
                 continue
 
             tag = q.evaluate("el => el.tagName.toLowerCase()")
 
+            # Canned-response match — try both the raw key and a space-normalized
+            # variant ("visa_sponsorship" → "visa sponsorship") because labels use
+            # natural language and responses.json keys are snake_case.
             answer = None
+            method = "canned"
             label_lower = label_text.lower()
             for key, value in responses.items():
-                if key.lower() in label_lower:
+                kl = key.lower()
+                if kl in label_lower or kl.replace("_", " ") in label_lower:
                     answer = value
-                    method = "canned"
                     break
 
             role = q.get_attribute("role") or ""
@@ -262,7 +267,24 @@ def handle_custom_questions(
                         resume_data=resume_data, responses=responses,
                     )
                     method = "claude"
+
+                # Required-field fallback: if Claude punted on a question that's
+                # clearly asking for the applicant's location, fill with the
+                # profile location rather than leave a required field blank.
+                # The form will reject submission otherwise.
+                if (not answer or not answer.strip()) and is_required:
+                    location_keywords = ["city", "state", "country", "based",
+                                         "where do you", "where will you",
+                                         "intend to work", "work location"]
+                    if any(kw in label_lower for kw in location_keywords):
+                        loc = profile_data.get("location", "").strip()
+                        if loc:
+                            answer = loc
+                            method = "profile_fallback"
+                            print(f"  [custom-q] {q_id}: claude skipped required location field → filled with profile.location ({loc})")
+
                 if not answer or not answer.strip():
+                    print(f"  [custom-q] skip {q_id} ({label_text[:50]}): empty/SKIP answer{' (REQUIRED)' if is_required else ''}")
                     continue
                 q.fill(answer)
                 answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
@@ -301,7 +323,19 @@ def handle_custom_questions(
                     if fuzzy_match_options(q, answer):
                         answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
 
-        except Exception:
+        except Exception as e:
+            # One bad field shouldn't kill the rest. Log so we can diagnose
+            # later instead of silently dropping. If we're inside a combobox
+            # branch with the dropdown still open, close it before moving on
+            # — otherwise the next field's selectors get confused by a
+            # phantom open dropdown.
+            qid_for_log = q_id if 'q_id' in locals() else '?'
+            label_for_log = label_text[:50] if 'label_text' in locals() and label_text else '?'
+            print(f"  [custom-q] FAILED {qid_for_log} ({label_for_log}): {type(e).__name__}: {e}")
+            try:
+                q.press("Escape")
+            except Exception:
+                pass
             continue
 
     return answered
