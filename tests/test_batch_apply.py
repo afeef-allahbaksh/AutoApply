@@ -186,8 +186,8 @@ def test_partition_splits_dedup_correctly():
     """_partition_selected separates already-applied from to-apply, drops invalid idx."""
     setup()
     try:
-        from src.ui.routes.apply import _partition_selected, _load_jobs
         from src.profile_loader import Profile
+        from src.ui.routes.apply import _load_jobs, _partition_selected
 
         # Pre-seed: job idx 0 (Acme) already applied
         (TEST_DIR / "applications.json").write_text(json.dumps([{
@@ -214,7 +214,9 @@ def test_batch_iterates_in_order_with_increment():
     setup()
     try:
         from src.ui.routes.apply import (
-            _batch_apply_worker, _apply_status_path, _apply_task_key,
+            _apply_status_path,
+            _apply_task_key,
+            _batch_apply_worker,
         )
         sf = _apply_status_path(TEST_PROFILE)
 
@@ -274,7 +276,9 @@ def test_quit_breaks_loop_remaining_not_attempted():
     setup()
     try:
         from src.ui.routes.apply import (
-            _batch_apply_worker, _apply_status_path, _apply_task_key,
+            _apply_status_path,
+            _apply_task_key,
+            _batch_apply_worker,
         )
         sf = _apply_status_path(TEST_PROFILE)
 
@@ -321,7 +325,9 @@ def test_cancel_mid_batch_marks_remaining_not_attempted():
     setup()
     try:
         from src.ui.routes.apply import (
-            _batch_apply_worker, _apply_status_path, _apply_task_key,
+            _apply_status_path,
+            _apply_task_key,
+            _batch_apply_worker,
         )
         sf = _apply_status_path(TEST_PROFILE)
 
@@ -389,7 +395,9 @@ def test_all_dupes_short_circuits_no_browser():
              "status_updated_at": "2026-05-01", "source": "autoapply"},
         ]))
         from src.ui.routes.apply import (
-            _batch_apply_worker, _apply_status_path, _apply_task_key,
+            _apply_status_path,
+            _apply_task_key,
+            _batch_apply_worker,
         )
         sf = _apply_status_path(TEST_PROFILE)
 
@@ -423,7 +431,9 @@ def test_single_job_apply_still_works():
     setup()
     try:
         from src.ui.routes.apply import (
-            _apply_worker, _apply_status_path, _apply_task_key,
+            _apply_status_path,
+            _apply_task_key,
+            _apply_worker,
         )
         sf = _apply_status_path(TEST_PROFILE)
 

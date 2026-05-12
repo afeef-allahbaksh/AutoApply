@@ -7,7 +7,8 @@ selectors, custom_questions, application.
 import time
 from pathlib import Path
 
-from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
+from playwright.sync_api import Page
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 from src.api import create_message
 from src.ats.applicant_context import build_applicant_context

@@ -10,7 +10,6 @@ from playwright.sync_api import Page
 
 from .selectors import fuzzy_match_options
 
-
 DEMOGRAPHIC_KEYWORDS = {
     "gender": "gender",
     "race": "ethnicity",

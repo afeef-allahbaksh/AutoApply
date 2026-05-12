@@ -85,7 +85,7 @@ def test_on_progress_callback_fires():
 
     with patch("src.discovery.SEED_PATH", seed_path), \
          patch("src.discovery.validate_slug", side_effect=fake_validate):
-        summary = discover_companies(TEST_PROFILE, on_progress=on_progress)
+        discover_companies(TEST_PROFILE, on_progress=on_progress)
 
     assert len(events) >= 2, f"expected >=2 progress events, got {len(events)}"
     print(f"  ok: on_progress fired {len(events)} times")
@@ -131,7 +131,7 @@ def test_runner_integration_via_worker():
     """Simulate the route's worker path: start_task → discover runs → status
     transitions to idle with the summary message."""
     seed_path = setup_test_profile_and_seeds()
-    from src.ui.routes.companies import _discover_worker, _discover_status_path, _discover_task_key
+    from src.ui.routes.companies import _discover_status_path, _discover_task_key, _discover_worker
 
     sf = _discover_status_path(TEST_PROFILE)
 

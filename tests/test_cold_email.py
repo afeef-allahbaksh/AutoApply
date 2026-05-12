@@ -59,6 +59,7 @@ def test_create_and_persist():
     setup()
     try:
         from fastapi.testclient import TestClient
+
         from src.ui.app import app
         setenv()
         client = TestClient(app)
@@ -86,11 +87,12 @@ def test_generate_populates_subject_and_body():
     setup()
     try:
         from fastapi.testclient import TestClient
-        from src.ui.app import app
+
         from src.outreach import load_outreach as _load_outreach
+        from src.ui.app import app
         setenv()
         client = TestClient(app)
-        r = client.post("/cold-email", data={
+        client.post("/cold-email", data={
             "company": "Stripe", "contact_name": "Patrick C.",
             "contact_email": "patrick@stripe.com",
             "contact_title": "Co-founder",
@@ -121,8 +123,9 @@ def test_edit_preserves_content():
     setup()
     try:
         from fastapi.testclient import TestClient
-        from src.ui.app import app
+
         from src.outreach import load_outreach as _load_outreach
+        from src.ui.app import app
         setenv()
         client = TestClient(app)
         client.post("/cold-email", data={
@@ -150,8 +153,9 @@ def test_status_change_stamps_sent_at():
     setup()
     try:
         from fastapi.testclient import TestClient
-        from src.ui.app import app
+
         from src.outreach import load_outreach as _load_outreach
+        from src.ui.app import app
         setenv()
         client = TestClient(app)
         client.post("/cold-email", data={
@@ -192,8 +196,9 @@ def test_delete():
     setup()
     try:
         from fastapi.testclient import TestClient
-        from src.ui.app import app
+
         from src.outreach import load_outreach as _load_outreach
+        from src.ui.app import app
         setenv()
         client = TestClient(app)
         client.post("/cold-email", data={
@@ -211,8 +216,9 @@ def test_delete():
 def test_generator_fallback_on_claude_failure():
     """If Claude returns garbage, generate_outreach falls back to a skeleton
     so the user always has something editable."""
-    from src.outreach.generator import generate_outreach
     from unittest.mock import MagicMock
+
+    from src.outreach.generator import generate_outreach
     # Simulate Claude returning non-JSON
     bad_message = MagicMock()
     bad_message.content = [MagicMock(text="not valid json at all")]

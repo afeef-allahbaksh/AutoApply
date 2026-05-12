@@ -42,7 +42,9 @@ def test_worker_runs_both_stages_in_order():
     setup()
     try:
         from src.ui.routes.pipeline import (
-            _pipeline_worker, _pipeline_status_path, _pipeline_task_key,
+            _pipeline_status_path,
+            _pipeline_task_key,
+            _pipeline_worker,
         )
         sf = _pipeline_status_path(TEST_PROFILE)
         stages_called = []
@@ -88,7 +90,9 @@ def test_cancel_between_stages():
     setup()
     try:
         from src.ui.routes.pipeline import (
-            _pipeline_worker, _pipeline_status_path, _pipeline_task_key,
+            _pipeline_status_path,
+            _pipeline_task_key,
+            _pipeline_worker,
         )
         sf = _pipeline_status_path(TEST_PROFILE)
         stages_called = []
@@ -133,14 +137,14 @@ def test_dashboard_renders_pipeline_status():
     new pipeline_status context."""
     setup()
     try:
-        from src.ui.routes.dashboard import _profile_summary_for, _metrics_for
+        from src.ui.routes.dashboard import _metrics_for, _profile_summary_for
         from src.ui.routes.pipeline import _read_pipeline_status
 
         # Pre-flight: all three helpers callable with the test profile
         # (won't have profile.json, so they return empty/None — that's fine)
         s = _read_pipeline_status(TEST_PROFILE)
         assert s.get("state") == "idle", f"empty profile -> idle, got {s}"
-        print(f"  ok: pipeline status idle when no file")
+        print("  ok: pipeline status idle when no file")
     finally:
         teardown()
 

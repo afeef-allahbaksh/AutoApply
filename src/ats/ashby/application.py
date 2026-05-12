@@ -19,15 +19,44 @@ from playwright.sync_api import Page
 
 from . import custom_questions as cq
 from .fields import (
-    APPLY_BUTTON, FIELD_ENTRY, LABEL_ROUTES,
-    SYSTEMFIELD_EEOC_DISABILITY, SYSTEMFIELD_EEOC_GENDER, SYSTEMFIELD_EEOC_RACE,
-    SYSTEMFIELD_EEOC_VETERAN, SYSTEMFIELD_EMAIL, SYSTEMFIELD_LOCATION,
-    SYSTEMFIELD_NAME, SYSTEMFIELD_RESUME,
+    APPLY_BUTTON,
+    FIELD_ENTRY,
+    LABEL_ROUTES,
+    SYSTEMFIELD_EEOC_DISABILITY,
+    SYSTEMFIELD_EEOC_GENDER,
+    SYSTEMFIELD_EEOC_RACE,
+    SYSTEMFIELD_EEOC_VETERAN,
+    SYSTEMFIELD_EMAIL,
+    SYSTEMFIELD_LOCATION,
+    SYSTEMFIELD_NAME,
+    SYSTEMFIELD_RESUME,
 )
 from .selectors import (
-    fill_checkbox_group, fill_combobox, fill_date, fill_radio_group,
-    fill_single_checkbox, fill_text, fill_yesno, get_label_text,
-    get_option_labels, upload_file, wait_for_form,
+    fill_checkbox_group,
+    fill_combobox,
+    fill_date,
+    fill_radio_group,
+    fill_single_checkbox,
+    fill_text,
+    fill_yesno,
+    get_label_text,
+    get_option_labels,
+    upload_file,
+    wait_for_form,
+)
+from .shapes import (
+    CHECKBOX_GROUP,
+    COMBOBOX,
+    DATEPICKER,
+    FILE_UPLOAD,
+    RADIO_GROUP,
+    SINGLE_CHECKBOX,
+    TEXT_INPUT,
+    TEXTAREA,
+    YESNO_TOGGLE,
+    detect_shape,
+    is_multi_select,
+    is_required,
 )
 
 # Keywords that mark a question as visa/sponsorship-related.
@@ -43,11 +72,6 @@ _SPONSORSHIP_KEYWORDS = (
 _NO_SPONSORSHIP_PATTERNS = (
     "none", "not applicable", "n/a", "no sponsorship",
     "do not require", "don't require", "not require",
-)
-from .shapes import (
-    CHECKBOX_GROUP, COMBOBOX, DATEPICKER, FILE_UPLOAD, RADIO_GROUP,
-    SINGLE_CHECKBOX, TEXT_INPUT, TEXTAREA, YESNO_TOGGLE,
-    detect_shape, is_multi_select, is_required,
 )
 
 # Default EEO option labels when the user's response value doesn't match an

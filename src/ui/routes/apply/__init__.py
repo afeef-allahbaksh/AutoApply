@@ -7,13 +7,6 @@
 """
 from fastapi import APIRouter
 
-from .batch import _batch_apply_worker, router as _batch_router
-from .shared import (
-    _append_completed, _apply_status_path, _apply_task_key,
-    _load_jobs, _partition_selected,
-)
-from .single import _apply_worker, router as _single_router
-
 # Re-export `get_browser_context` for direct-import callers. Note: this is
 # NOT a usable patch target — `mock.patch` rewrites a name in a module, but
 # both `single.py` and `batch.py` import their own copy via
@@ -21,6 +14,18 @@ from .single import _apply_worker, router as _single_router
 # submodule names (`src.ui.routes.apply.single.get_browser_context`, etc.)
 # to affect the worker.
 from src.browser import get_browser_context  # noqa: F401
+
+from .batch import _batch_apply_worker
+from .batch import router as _batch_router
+from .shared import (
+    _append_completed,
+    _apply_status_path,
+    _apply_task_key,
+    _load_jobs,
+    _partition_selected,
+)
+from .single import _apply_worker
+from .single import router as _single_router
 
 router = APIRouter()
 router.include_router(_single_router)

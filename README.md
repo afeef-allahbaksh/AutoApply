@@ -1,5 +1,7 @@
 # AutoApply
 
+[![CI](https://github.com/afeef-allahbaksh/AutoApply/actions/workflows/ci.yml/badge.svg)](https://github.com/afeef-allahbaksh/AutoApply/actions/workflows/ci.yml)
+
 Apply to dozens of jobs in the time it takes to apply to one — without the slop. AutoApply discovers open roles at companies you care about, scores each one against your resume, tailors the resume per job, fills out the application, and tracks your interview pipeline on a local dashboard.
 
 You stay in control: every submission pauses for your review in the dashboard, every inbox-driven status change goes through a manual approve/dismiss queue, and your personal data lives only on your machine.

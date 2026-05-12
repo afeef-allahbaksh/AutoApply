@@ -61,6 +61,7 @@ def _client():
     """Activate the test profile and return a TestClient bound to the FastAPI app."""
     os.environ["AUTOAPPLY_PROFILE"] = PROFILE_SLUG
     from fastapi.testclient import TestClient
+
     from src.ui.app import app
     return TestClient(app)
 
@@ -73,7 +74,7 @@ def test_delete_company_removes_only_that_slug():
     """POST /companies/beta/delete removes Beta Inc, leaves Alpha and Gamma."""
     _setup_profile()
     try:
-        resp = _client().post(f"/companies/beta/delete")
+        resp = _client().post("/companies/beta/delete")
         assert resp.status_code == 200, resp.text
         companies = _read_json("companies.json")
         slugs = [c["slug"] for c in companies]
@@ -87,7 +88,7 @@ def test_delete_company_leaves_applications_intact():
     History is preserved (composite-key dedup keeps them independent)."""
     _setup_profile()
     try:
-        _client().post(f"/companies/beta/delete")
+        _client().post("/companies/beta/delete")
         apps = _read_json("applications.json")
         assert len(apps) == 1
         assert apps[0]["company"] == "Beta Inc"
@@ -100,7 +101,7 @@ def test_delete_company_leaves_jobs_intact():
     Jobs page re-fetches and naturally drops orphaned rows."""
     _setup_profile()
     try:
-        _client().post(f"/companies/beta/delete")
+        _client().post("/companies/beta/delete")
         jobs = _read_json("jobs.json")
         assert len(jobs) == 1
         assert jobs[0]["company"] == "Beta Inc"
@@ -111,7 +112,7 @@ def test_delete_company_leaves_jobs_intact():
 def test_delete_unknown_slug_returns_404():
     _setup_profile()
     try:
-        resp = _client().post(f"/companies/nonexistent/delete")
+        resp = _client().post("/companies/nonexistent/delete")
         assert resp.status_code == 404, resp.text
         # And nothing was mutated
         companies = _read_json("companies.json")
@@ -125,7 +126,7 @@ def test_delete_lowercases_slug():
     the same as /beta/delete (matches add_company's lowercasing)."""
     _setup_profile()
     try:
-        resp = _client().post(f"/companies/BETA/delete")
+        resp = _client().post("/companies/BETA/delete")
         assert resp.status_code == 200, resp.text
         slugs = [c["slug"] for c in _read_json("companies.json")]
         assert "beta" not in slugs
@@ -140,7 +141,7 @@ def test_delete_response_partial_renders_remaining_companies():
     not the company-name string.)"""
     _setup_profile()
     try:
-        resp = _client().post(f"/companies/beta/delete")
+        resp = _client().post("/companies/beta/delete")
         body = resp.text
         assert ">alpha<" in body, "alpha slug cell should be present"
         assert ">gamma<" in body, "gamma slug cell should be present"

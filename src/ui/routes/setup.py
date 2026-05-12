@@ -1,6 +1,5 @@
 """First-run setup wizard — single page that creates profile.json + responses.json
 (and optionally resume.json) for a new (or reset) profile."""
-import json
 import re
 from urllib.parse import quote
 

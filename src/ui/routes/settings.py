@@ -7,10 +7,10 @@ from fastapi.responses import RedirectResponse
 
 from src.inbox import auth as inbox_auth
 from src.inbox.auth import ImapCredentials
-from src.profile_loader import PROFILES_DIR, Profile, _atomic_write_json
+from src.profile_loader import PROFILES_DIR, _atomic_write_json
 from src.resume.parser import parse_pdf_to_resume
 from src.role_expander import expand_roles
-from src.schemas import validate_profile, validate_resume, validate_responses
+from src.schemas import validate_profile, validate_responses, validate_resume
 
 from .. import state
 from ..deps import template_context

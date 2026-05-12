@@ -84,7 +84,10 @@ def test_worker_happy_path():
     setup()
     try:
         from src.ui.routes.optimize import (
-            _optimize_worker, _optimize_status_path, _optimize_task_key, _read_optimize_status,
+            _optimize_status_path,
+            _optimize_task_key,
+            _optimize_worker,
+            _read_optimize_status,
         )
         sf = _optimize_status_path(TEST_PROFILE)
 
@@ -101,7 +104,7 @@ def test_worker_happy_path():
                 "message": "Starting…",
                 "diff": None, "json_path": None, "pdf_path": None,
             },
-            thread_name=f"optimize-test-0",
+            thread_name="optimize-test-0",
         )
         assert_eq(started, True, "start_task returns True")
 
@@ -127,7 +130,9 @@ def test_cached_path_short_circuits():
     setup()
     try:
         from src.ui.routes.optimize import (
-            _optimize_worker, _optimize_status_path, _optimize_task_key,
+            _optimize_status_path,
+            _optimize_task_key,
+            _optimize_worker,
         )
         sf = _optimize_status_path(TEST_PROFILE)
         # Override the find_cached_resume stub locally to return a cached hit
@@ -161,7 +166,9 @@ def test_error_path_captured():
     setup()
     try:
         from src.ui.routes.optimize import (
-            _optimize_worker, _optimize_status_path, _optimize_task_key,
+            _optimize_status_path,
+            _optimize_task_key,
+            _optimize_worker,
         )
         sf = _optimize_status_path(TEST_PROFILE)
         with patch("src.ui.routes.optimize.optimize_resume",
@@ -190,7 +197,9 @@ def test_job_idx_persists_across_running_and_terminal():
     setup()
     try:
         from src.ui.routes.optimize import (
-            _optimize_worker, _optimize_status_path, _optimize_task_key,
+            _optimize_status_path,
+            _optimize_task_key,
+            _optimize_worker,
         )
         sf = _optimize_status_path(TEST_PROFILE)
         # Start optimize for job 1, not 0

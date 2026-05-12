@@ -12,3 +12,6 @@ python-multipart>=0.0.9
 
 # Test dependencies (used by `pytest` against the `tests/` suite)
 pytest>=8.0.0
+
+# Lint (run in CI; also useful locally as `ruff check src tests`)
+ruff>=0.6.0

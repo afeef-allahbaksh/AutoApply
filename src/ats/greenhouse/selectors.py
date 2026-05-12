@@ -3,7 +3,8 @@ greenhouse submodule, so this is the leaf of the dependency graph (no imports
 from sibling greenhouse modules)."""
 import re
 
-from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
+from playwright.sync_api import Page
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 from .fields import FIRST_NAME
 
@@ -65,7 +66,7 @@ def fuzzy_match_options(el, target: str) -> bool:
 
     target_lower = target.lower()
 
-    for text, value in option_texts:
+    for text, _value in option_texts:
         text_lower = text.lower()
         if target_lower in text_lower or text_lower in target_lower:
             el.select_option(label=text)
@@ -74,7 +75,7 @@ def fuzzy_match_options(el, target: str) -> bool:
     # Word-overlap with punctuation stripped (bachelor's -> bachelors matches bachelors)
     target_words = _normalize_words(target)
     best_score, best_text = 0, None
-    for text, value in option_texts:
+    for text, _value in option_texts:
         if not text or text.lower().startswith("select") or text == "---":
             continue
         option_words = _normalize_words(text)

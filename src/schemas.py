@@ -1,4 +1,5 @@
 import json
+
 from jsonschema import validate
 
 from src.paths import CONFIG_DIR

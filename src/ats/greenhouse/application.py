@@ -9,8 +9,16 @@ from .custom_questions import handle_custom_questions
 from .demographics import fill_demographics
 from .education import fill_education_section
 from .fields import (
-    CANDIDATE_LOCATION, COVER_LETTER_UPLOAD, EMAIL, FIRST_NAME, LAST_NAME,
-    LINKEDIN, LOCATION, PHONE, PHONE_COUNTRY, PREFERRED_NAME, RESUME_UPLOAD,
+    CANDIDATE_LOCATION,
+    COVER_LETTER_UPLOAD,
+    EMAIL,
+    FIRST_NAME,
+    LAST_NAME,
+    LINKEDIN,
+    PHONE,
+    PHONE_COUNTRY,
+    PREFERRED_NAME,
+    RESUME_UPLOAD,
 )
 from .location import fill_location_autocomplete
 from .selectors import fill_if_exists, upload_if_exists, wait_for_form

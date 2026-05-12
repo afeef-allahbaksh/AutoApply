@@ -16,8 +16,12 @@ from .generator import batch_generate_outreach, generate_outreach
 from .gmail import clean_domain, gmail_compose_url
 from .sender import send_email
 from .store import (
-    STATUS_BADGE, STATUSES,
-    load_outreach, now_iso, outreach_path, save_outreach,
+    STATUS_BADGE,
+    STATUSES,
+    load_outreach,
+    now_iso,
+    outreach_path,
+    save_outreach,
 )
 
 __all__ = [

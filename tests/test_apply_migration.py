@@ -251,7 +251,7 @@ def test_worker_integration_via_prompt_channel():
     response via prompt.submit_response → worker unblocks → terminal idle."""
     setup()
     try:
-        from src.ui.routes.apply import _apply_worker, _apply_status_path, _apply_task_key
+        from src.ui.routes.apply import _apply_status_path, _apply_task_key, _apply_worker
 
         sf = _apply_status_path(TEST_PROFILE)
         mock_page = fresh_page()
@@ -278,7 +278,7 @@ def test_worker_integration_via_prompt_channel():
                     "screenshot_path": None, "result_status": None,
                     "pending_prompt": None, "prompt_response": None,
                 },
-                thread_name=f"apply-test-0",
+                thread_name="apply-test-0",
             )
             assert_eq(started, True, "worker started")
 
@@ -324,7 +324,7 @@ def test_worker_dedup_short_circuits():
             "date": "2026-05-01", "status": "applied", "ats": "greenhouse",
             "status_updated_at": "2026-05-01", "source": "autoapply",
         }]))
-        from src.ui.routes.apply import _apply_worker, _apply_status_path, _apply_task_key
+        from src.ui.routes.apply import _apply_status_path, _apply_task_key, _apply_worker
 
         sf = _apply_status_path(TEST_PROFILE)
         browser_calls = []

@@ -9,10 +9,17 @@ from fastapi.responses import HTMLResponse
 
 from src.inbox import auth as inbox_auth
 from src.outreach import (
-    STATUS_BADGE, STATUSES,
-    batch_generate_outreach, clean_domain, generate_outreach,
-    gmail_compose_url, load_outreach, now_iso, parse_csv_rows,
-    save_outreach, send_email,
+    STATUS_BADGE,
+    STATUSES,
+    batch_generate_outreach,
+    clean_domain,
+    generate_outreach,
+    gmail_compose_url,
+    load_outreach,
+    now_iso,
+    parse_csv_rows,
+    save_outreach,
+    send_email,
 )
 from src.profile_loader import PROFILES_DIR
 

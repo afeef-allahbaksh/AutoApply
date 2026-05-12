@@ -83,7 +83,7 @@ def test_import_resume_empty_rejected():
 def test_import_resume_too_large_rejected():
     setup()
     try:
-        from src.ui.routes.settings import _import_resume_from_bytes, MAX_PDF_BYTES
+        from src.ui.routes.settings import MAX_PDF_BYTES, _import_resume_from_bytes
         try:
             _import_resume_from_bytes(TEST_PROFILE, b"\x00" * (MAX_PDF_BYTES + 1))
         except ValueError as e:
@@ -97,7 +97,7 @@ def test_import_resume_too_large_rejected():
 def test_add_projects_merges_and_dedupes():
     setup()
     try:
-        from src.ui.routes.settings import _import_resume_from_bytes, _add_projects_from_bytes
+        from src.ui.routes.settings import _add_projects_from_bytes, _import_resume_from_bytes
         # Seed with full resume
         with patch("src.ui.routes.settings.parse_pdf_to_resume", return_value=PARSED_RESUME):
             _import_resume_from_bytes(TEST_PROFILE, b"fake pdf")

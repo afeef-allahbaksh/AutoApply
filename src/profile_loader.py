@@ -1,17 +1,20 @@
 import json
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
-from jsonschema import ValidationError
 
-from src.schemas import (
-    validate_applications, validate_companies, validate_profile,
-    validate_resume, validate_responses,
-)
+from jsonschema import ValidationError
 
 # Re-exported from `src.paths` so legacy `from src.profile_loader import
 # PROFILES_DIR` callers keep working. New code should import directly from
 # `src.paths`.
 from src.paths import CONFIG_DIR, PROFILES_DIR  # noqa: F401
+from src.schemas import (
+    validate_applications,
+    validate_companies,
+    validate_profile,
+    validate_responses,
+    validate_resume,
+)
 
 
 def _atomic_write_json(path: Path, data, validator=None) -> None:
@@ -77,12 +80,12 @@ class Profile:
             with open(path) as f:
                 data = json.load(f)
         except json.JSONDecodeError as e:
-            raise ProfileLoadError(f"Invalid JSON in {path}: {e}")
+            raise ProfileLoadError(f"Invalid JSON in {path}: {e}") from e
 
         try:
             validator(data)
         except ValidationError as e:
-            raise ProfileLoadError(f"Validation error in {path}: {e.message}")
+            raise ProfileLoadError(f"Validation error in {path}: {e.message}") from e
 
         return data
 

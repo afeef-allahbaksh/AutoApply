@@ -37,6 +37,7 @@ def test_post_creates_profile_no_expand():
     cleanup(slug)
     try:
         from fastapi.testclient import TestClient
+
         from src.ui.app import app
         client = TestClient(app)
         # Skip the LLM call by not setting expand
@@ -75,6 +76,7 @@ def test_post_with_expand_calls_role_expander():
     cleanup(slug)
     try:
         from fastapi.testclient import TestClient
+
         from src.ui.app import app
         client = TestClient(app)
         with patch("src.ui.routes.setup.expand_roles",
@@ -101,6 +103,7 @@ def test_post_with_expand_calls_role_expander():
 
 def test_post_empty_slug_rejected():
     from fastapi.testclient import TestClient
+
     from src.ui.app import app
     client = TestClient(app)
     resp = client.post("/setup", data={
@@ -118,6 +121,7 @@ def test_post_blank_after_csv_split_rejected():
     produce an empty list after _split_csv — my route should redirect with
     an error rather than write an invalid profile."""
     from fastapi.testclient import TestClient
+
     from src.ui.app import app
     client = TestClient(app)
     resp = client.post("/setup", data={
@@ -141,6 +145,7 @@ def test_dashboard_redirects_when_no_profile():
     """If active profile env var is unset AND profiles/ has no real profiles,
     GET / should bounce to /setup."""
     from fastapi.testclient import TestClient
+
     from src.ui.app import app
     client = TestClient(app)
 
@@ -160,6 +165,7 @@ def test_dashboard_redirects_when_no_profile():
 
 def test_get_setup_renders():
     from fastapi.testclient import TestClient
+
     from src.ui.app import app
     client = TestClient(app)
     resp = client.get("/setup")

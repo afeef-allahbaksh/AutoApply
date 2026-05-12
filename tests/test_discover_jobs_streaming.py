@@ -176,7 +176,9 @@ def test_runner_integration():
     setup()
     try:
         from src.ui.routes.jobs import (
-            _discover_jobs_status_path, _discover_jobs_task_key, _discover_jobs_worker,
+            _discover_jobs_status_path,
+            _discover_jobs_task_key,
+            _discover_jobs_worker,
         )
         sf = _discover_jobs_status_path(TEST_PROFILE)
         started, msg = runner.start_task(

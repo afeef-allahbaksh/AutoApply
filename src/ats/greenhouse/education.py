@@ -5,8 +5,13 @@ from playwright.sync_api import Page
 
 from .dates import parse_date_parts, try_select_date
 from .fields import (
-    EDU_DEGREE, EDU_DISCIPLINE, EDU_END_MONTH, EDU_END_YEAR,
-    EDU_SCHOOL, EDU_START_MONTH, EDU_START_YEAR,
+    EDU_DEGREE,
+    EDU_DISCIPLINE,
+    EDU_END_MONTH,
+    EDU_END_YEAR,
+    EDU_SCHOOL,
+    EDU_START_MONTH,
+    EDU_START_YEAR,
 )
 from .selectors import select_option_fuzzy_el
 

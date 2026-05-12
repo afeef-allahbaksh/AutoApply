@@ -153,6 +153,7 @@ def test_route_send_happy_path():
             "linked_application_idx": None, "linked_job_idx": None,
         }]))
         from fastapi.testclient import TestClient
+
         from src.ui.app import app
         setenv()
         client = TestClient(app)
@@ -190,6 +191,7 @@ def test_route_send_failure_does_not_change_status():
             "linked_application_idx": None, "linked_job_idx": None,
         }]))
         from fastapi.testclient import TestClient
+
         from src.ui.app import app
         setenv()
         client = TestClient(app)

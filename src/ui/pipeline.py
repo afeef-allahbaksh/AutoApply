@@ -40,7 +40,7 @@ def load_applications(profile_name: str) -> list:
     try:
         profile = Profile(profile_name)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     return list(profile.applications)
 
 

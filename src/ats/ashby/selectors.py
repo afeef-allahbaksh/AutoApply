@@ -5,7 +5,9 @@ the value(s) to fill. Returns bool: True if the field was actually filled,
 False if the locator didn't resolve or fill verification failed.
 """
 import time
-from playwright.sync_api import Locator, Page, TimeoutError as PlaywrightTimeout
+
+from playwright.sync_api import Locator, Page
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 
 def wait_for_form(page: Page, timeout: int = 15000) -> bool:
@@ -253,7 +255,7 @@ def upload_file(page: Page, container: Locator, file_path: str) -> bool:
         with page.expect_file_chooser() as fc_info:
             upload_btn.click()
         fc_info.value.set_files(file_path)
-        print(f"  [ashby] upload_file: file_chooser fallback ok")
+        print("  [ashby] upload_file: file_chooser fallback ok")
         return True
     except Exception as e:
         print(f"  [ashby] upload_file: file_chooser fallback failed ({type(e).__name__}: {e})")

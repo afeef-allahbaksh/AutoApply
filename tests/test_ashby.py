@@ -15,13 +15,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.ats.ashby.application import (
-    _format_grad_date, _is_sponsorship_question, _normalize_eeo_answer,
-    _pick_no_sponsorship_option, _route_label, _source_value,
+    _format_grad_date,
+    _is_sponsorship_question,
+    _normalize_eeo_answer,
+    _pick_no_sponsorship_option,
+    _route_label,
+    _source_value,
 )
 from src.ats.ashby.fields import (
-    LABEL_ROUTES, SYSTEMFIELD_EEOC_GENDER, SYSTEMFIELD_EEOC_VETERAN,
+    LABEL_ROUTES,
+    SYSTEMFIELD_EEOC_GENDER,
+    SYSTEMFIELD_EEOC_VETERAN,
 )
-
 
 # ---------- _format_grad_date ----------
 

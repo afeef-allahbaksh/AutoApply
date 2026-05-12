@@ -28,7 +28,7 @@ def _metrics_for(profile_name: str) -> dict:
     try:
         profile = Profile(profile_name)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
     apps = list(profile.applications)
     total_applied = sum(1 for a in apps if a.get("status") in ACTIVE_STATUSES)

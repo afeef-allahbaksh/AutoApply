@@ -1,4 +1,3 @@
-import json
 from datetime import date
 from pathlib import Path
 
@@ -25,7 +24,7 @@ def _load_jobs(profile_name: str) -> list:
         try:
             Profile(profile_name)  # surfaces FileNotFoundError → 404
         except FileNotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+            raise HTTPException(status_code=404, detail=str(e)) from e
     return load_jobs(profile_name)
 
 
@@ -252,7 +251,7 @@ def track_job(request: Request, idx: int, status: str = Form("applied")):
         try:
             profile = Profile(profile_name)
         except FileNotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+            raise HTTPException(status_code=404, detail=str(e)) from e
 
         jobs = _load_jobs(profile_name)
         if not 0 <= idx < len(jobs):
@@ -297,7 +296,7 @@ def delete_job(request: Request, idx: int):
         try:
             profile = Profile(profile_name)
         except FileNotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+            raise HTTPException(status_code=404, detail=str(e)) from e
         jobs = list(_load_jobs(profile_name))
         if not 0 <= idx < len(jobs):
             raise HTTPException(status_code=404, detail=f"job index {idx} out of range")

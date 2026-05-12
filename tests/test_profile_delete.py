@@ -36,6 +36,7 @@ def test_delete_with_correct_confirm():
     make_test_profile()
     try:
         from fastapi.testclient import TestClient
+
         from src.ui.app import app
         os.environ["AUTOAPPLY_PROFILE"] = TEST_PROFILE
         client = TestClient(app)
@@ -61,6 +62,7 @@ def test_delete_rejects_wrong_confirm():
     make_test_profile()
     try:
         from fastapi.testclient import TestClient
+
         from src.ui.app import app
         client = TestClient(app)
         resp = client.post("/profile/delete", data={
@@ -75,6 +77,7 @@ def test_delete_rejects_wrong_confirm():
 
 def test_delete_unknown_profile_no_op():
     from fastapi.testclient import TestClient
+
     from src.ui.app import app
     client = TestClient(app)
     resp = client.post("/profile/delete", data={
@@ -92,6 +95,7 @@ def test_delete_path_traversal_rejected():
     state.list_profiles() check should already short-circuit this, but
     the path-resolve guard is defense-in-depth."""
     from fastapi.testclient import TestClient
+
     from src.ui.app import app
     client = TestClient(app)
     resp = client.post("/profile/delete", data={
@@ -107,6 +111,7 @@ def test_profile_delete_modal_rendered_in_sidebar():
     """Smoke check the profile-delete modal + sidebar menu item render on
     every page (they live in base.html now, not just /settings)."""
     from fastapi.testclient import TestClient
+
     from src.ui.app import app
     profiles = sorted(p.name for p in PROFILES_DIR.iterdir() if p.is_dir() and (p / 'profile.json').exists())
     if not profiles:

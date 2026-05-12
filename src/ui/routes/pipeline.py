@@ -1,7 +1,6 @@
 """Run-pipeline route — chains the read-only discovery stages (companies → jobs)
 in one background task. Per-job optimize and apply remain individual user
 actions on /jobs (deferred to v2+ as multi-job batch UX)."""
-import json
 from pathlib import Path
 
 from fastapi import APIRouter, Request

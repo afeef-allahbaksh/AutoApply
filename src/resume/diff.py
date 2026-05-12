@@ -39,7 +39,7 @@ def diff_resumes(base: dict, optimized: dict, project_selection: dict | None = N
             if not old:
                 lines.append(f"    + New category: {', '.join(new)}")
             elif not new:
-                lines.append(f"    - Removed category")
+                lines.append("    - Removed category")
             else:
                 if added:
                     lines.append(f"    + Added: {', '.join(added)}")

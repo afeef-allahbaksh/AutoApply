@@ -4,9 +4,6 @@ from datetime import date
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
-# YYYY-MM-DD — schema requires this format on every entry.
-_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-
 from src.applicant import _save_applications
 
 from .. import state
@@ -22,6 +19,9 @@ from ..pipeline import (
     timeline_rows,
 )
 from ..templates_loader import templates
+
+# YYYY-MM-DD — schema requires this format on every entry.
+_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 router = APIRouter()
 

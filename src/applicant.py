@@ -9,11 +9,15 @@ from src.ats.ashby import fill_ashby_application
 from src.ats.greenhouse import fill_greenhouse_application
 from src.ats.lever import fill_lever_application
 from src.profile_loader import PROFILES_DIR, _atomic_write_json, normalize_posting_url
-from src.schemas import validate_applications
 from src.resume.optimizer import (
-    find_cached_resume, optimize_resume,
-    _optimization_hash, _slugify, save_tailored_resume, select_projects,
+    _optimization_hash,
+    _slugify,
+    find_cached_resume,
+    optimize_resume,
+    save_tailored_resume,
+    select_projects,
 )
+from src.schemas import validate_applications
 
 
 def _handle_post_submit_verification(page, verification_handler, progress_callback) -> str:

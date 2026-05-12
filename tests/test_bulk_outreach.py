@@ -100,8 +100,9 @@ def test_bulk_import_route():
     setup()
     try:
         from fastapi.testclient import TestClient
-        from src.ui.app import app
+
         from src.outreach import load_outreach as _load_outreach
+        from src.ui.app import app
         setenv()
         c = TestClient(app)
         csv = (
@@ -127,8 +128,9 @@ def test_bulk_import_partial_failure():
     setup()
     try:
         from fastapi.testclient import TestClient
-        from src.ui.app import app
+
         from src.outreach import load_outreach as _load_outreach
+        from src.ui.app import app
         setenv()
         c = TestClient(app)
         # 2 valid + 1 invalid (no name)
@@ -209,8 +211,9 @@ def test_generate_all_route_skips_already_drafted():
     setup()
     try:
         from fastapi.testclient import TestClient
-        from src.ui.app import app
+
         from src.outreach import load_outreach as _load_outreach
+        from src.ui.app import app
         setenv()
         # Seed 3 records: 2 ungenerated, 1 already drafted
         (TEST_DIR / "outreach.json").write_text(json.dumps([
@@ -259,6 +262,7 @@ def test_generate_all_empty_is_noop():
     setup()
     try:
         from fastapi.testclient import TestClient
+
         from src.ui.app import app
         setenv()
         (TEST_DIR / "outreach.json").write_text("[]")

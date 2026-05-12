@@ -3,7 +3,6 @@
 These run before any Claude calls — cheap, deterministic, do most of the work."""
 from src.profile_loader import normalize_posting_url
 
-
 NO_PREFERENCE = {"any", "no preference", "anywhere", "all"}
 
 

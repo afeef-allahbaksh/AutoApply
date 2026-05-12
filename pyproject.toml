@@ -13,3 +13,27 @@ python_functions = ["test_*"]
 pythonpath = ["."]
 # Stop on first failure during CI; remove or use `--maxfail=10` to see all.
 # addopts = "-x"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# Conservative starting set — catches real bugs without drowning the codebase
+# in cosmetic warnings. Expand as type/style hygiene grows.
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes — undefined names, unused imports (high value)
+    "I",   # isort — import sorting
+    "B",   # flake8-bugbear — mutable defaults, etc.
+]
+ignore = [
+    "E501",  # line-too-long; we set line-length=120 but don't enforce it strictly
+    "B008",  # function call in default arg — FastAPI's Depends() pattern uses this
+    "B905",  # zip(..., strict=False) — strict=True is a behavior change; strict=False is visual noise
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests routinely import-then-mock and shadow names across helpers + main runners.
+"tests/*.py" = ["F401", "F811"]

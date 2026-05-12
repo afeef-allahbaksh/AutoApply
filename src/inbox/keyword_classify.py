@@ -11,7 +11,6 @@ sync pipeline doesn't care which classifier produced the decisions.
 """
 import re
 
-
 # Status detection — ordered by specificity. First match wins, so high-priority
 # states (offer, rejected) come before generic ones (applied) so a "thanks for
 # applying earlier, but unfortunately…" rejection isn't misread as applied.

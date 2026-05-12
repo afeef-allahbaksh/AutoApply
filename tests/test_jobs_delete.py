@@ -57,6 +57,7 @@ def _teardown_profile():
 def _client():
     os.environ["AUTOAPPLY_PROFILE"] = PROFILE_SLUG
     from fastapi.testclient import TestClient
+
     from src.ui.app import app
     return TestClient(app)
 

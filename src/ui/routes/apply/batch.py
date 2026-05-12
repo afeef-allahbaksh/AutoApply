@@ -6,7 +6,6 @@ front so the browser never opens for an all-dupes selection.
 """
 import json
 from pathlib import Path
-
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -23,8 +22,11 @@ from ... import state
 from ...deps import template_context
 from ...templates_loader import templates
 from .shared import (
-    _append_completed, _apply_status_path, _apply_task_key,
-    _load_jobs, _partition_selected,
+    _append_completed,
+    _apply_status_path,
+    _apply_task_key,
+    _load_jobs,
+    _partition_selected,
 )
 
 router = APIRouter()
@@ -212,8 +214,8 @@ def _batch_apply_worker(
                     record_this_job = False
                 except Exception as e:  # noqa: BLE001 — one bad job shouldn't kill the batch
                     print(f"  [batch] job {item['idx']} crashed: {e}")
-                    import traceback
                     import sys
+                    import traceback
                     traceback.print_exc(file=sys.stderr)
                     job_status = "failed"
 
