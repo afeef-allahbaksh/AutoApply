@@ -51,6 +51,30 @@
         <div class="section-label">{{ companies|length }} companies tracked</div>
       </div>
       {% if companies %}
+        <style>
+          .company-row .company-row-action button { opacity: 0; transition: opacity 120ms ease; }
+          .company-row:hover .company-row-action button { opacity: 1; }
+          .company-row-action { width: 36px; text-align: right; padding-right: 0.75rem; }
+          .company-row-action button {
+            width: 22px; height: 22px;
+            border: 1px solid var(--rule);
+            background: var(--canvas-raised);
+            border-radius: 4px;
+            color: var(--ink-muted);
+            cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center;
+            font-size: 14px; line-height: 1;
+            padding: 0;
+            transition: border-color var(--duration-fast) var(--ease),
+                        color var(--duration-fast) var(--ease),
+                        background var(--duration-fast) var(--ease);
+          }
+          .company-row-action button:hover {
+            border-color: var(--status-danger);
+            color: var(--status-danger);
+            background: var(--status-danger-bg);
+          }
+        </style>
         <table class="app-table">
           <thead>
             <tr>
@@ -59,16 +83,26 @@
               <th>ATS</th>
               <th>Careers</th>
               <th>Added</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {% for c in companies %}
-              <tr>
+              <tr class="company-row">
                 <td style="font-weight: 500;">{{ c.name }}</td>
                 <td style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--ink-muted);">{{ c.slug }}</td>
                 <td><span class="badge badge-neutral">{{ c.ats }}</span></td>
                 <td><a href="{{ c.careers_url }}" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: underline;">link</a></td>
                 <td style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--ink-muted);">{{ c.added or '—' }}</td>
+                <td class="company-row-action">
+                  <button type="button"
+                          hx-post="/companies/{{ c.slug }}/delete"
+                          hx-target="#companies-content"
+                          hx-swap="outerHTML"
+                          hx-confirm="Remove {{ c.name }}? Applications and history are kept; only the company entry is removed."
+                          title="remove"
+                          aria-label="remove {{ c.name }}">×</button>
+                </td>
               </tr>
             {% endfor %}
           </tbody>

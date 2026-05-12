@@ -706,5 +706,88 @@
       document.querySelectorAll('.file-drop').forEach(wireFileDrop);
     })();
   </script>
+
+  <div id="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-text" hidden>
+    <div class="confirm-modal-backdrop"></div>
+    <div class="confirm-modal-card glass-card">
+      <p id="confirm-modal-text" class="confirm-modal-text"></p>
+      <div class="confirm-modal-actions">
+        <button type="button" class="btn-ghost btn-sm" id="confirm-modal-cancel">Cancel</button>
+        <button type="button" class="btn-primary btn-sm" id="confirm-modal-ok">Confirm</button>
+      </div>
+    </div>
+  </div>
+  <style>
+    #confirm-modal[hidden] { display: none; }
+    #confirm-modal {
+      position: fixed; inset: 0; z-index: 9999;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .confirm-modal-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(7, 8, 11, 0.72);
+      backdrop-filter: blur(2px);
+    }
+    .confirm-modal-card {
+      position: relative;
+      max-width: 28rem;
+      padding: 1.25rem 1.25rem 1rem;
+      box-shadow: 0 24px 60px -8px rgba(0, 0, 0, 0.6);
+      animation: confirm-modal-in 140ms var(--ease, ease-out);
+    }
+    @keyframes confirm-modal-in {
+      from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .confirm-modal-text {
+      margin: 0 0 1rem;
+      color: var(--ink-strong);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .confirm-modal-actions {
+      display: flex; gap: 0.5rem; justify-content: flex-end;
+    }
+  </style>
+  <script>
+    (function () {
+      const modal = document.getElementById('confirm-modal');
+      const textEl = document.getElementById('confirm-modal-text');
+      const okBtn  = document.getElementById('confirm-modal-ok');
+      const cxBtn  = document.getElementById('confirm-modal-cancel');
+      let resolver = null;
+
+      function open(question) {
+        textEl.textContent = question;
+        modal.hidden = false;
+        // Focus Confirm so Enter immediately commits (matches native dialog UX).
+        setTimeout(() => okBtn.focus(), 0);
+        return new Promise((res) => { resolver = res; });
+      }
+      function close(result) {
+        modal.hidden = true;
+        const r = resolver; resolver = null;
+        if (r) r(result);
+      }
+      okBtn.addEventListener('click', () => close(true));
+      cxBtn.addEventListener('click', () => close(false));
+      modal.querySelector('.confirm-modal-backdrop').addEventListener('click', () => close(false));
+      document.addEventListener('keydown', (e) => {
+        if (modal.hidden) return;
+        if (e.key === 'Escape') { e.preventDefault(); close(false); }
+      });
+
+      // Intercept HTMX's default confirm() and route through our themed modal.
+      // evt.detail.question is the hx-confirm string; calling issueRequest()
+      // re-fires the original HTMX request after the user confirms.
+      document.body.addEventListener('htmx:confirm', function (evt) {
+        if (!evt.detail.question) return;  // no hx-confirm set
+        evt.preventDefault();
+        open(evt.detail.question).then((ok) => {
+          if (ok) evt.detail.issueRequest(true);  // skip re-confirm
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

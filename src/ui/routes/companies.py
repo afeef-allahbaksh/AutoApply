@@ -237,3 +237,31 @@ def discover_cancel(request: Request):
         if flipped else "No discovery running."
     )
     return _render_companies_main(request, profile_name, discover_msg=msg)
+
+
+@router.post("/companies/{slug}/delete")
+def delete_company(request: Request, slug: str):
+    """Remove a company from companies.json. Applications and jobs.json are
+    left intact — composite-key dedup keeps history independent, and the next
+    Refresh on Jobs naturally drops orphaned rows."""
+    profile_name = state.active_profile()
+    if not profile_name:
+        raise HTTPException(status_code=400, detail="No active profile.")
+
+    slug = slug.strip().lower()
+    if not slug:
+        raise HTTPException(status_code=400, detail="Slug is required.")
+
+    lock = state.profile_lock(profile_name)
+    with lock:
+        companies = _all_companies(profile_name)
+        new_list = [c for c in companies if c.get("slug") != slug]
+        if len(new_list) == len(companies):
+            raise HTTPException(status_code=404, detail=f"Company '{slug}' not found.")
+        removed = next(c for c in companies if c.get("slug") == slug)
+        _save_companies(profile_name, new_list)
+
+    return _render_companies_main(
+        request, profile_name,
+        discover_msg=f"Removed {removed.get('name', slug)}.",
+    )
