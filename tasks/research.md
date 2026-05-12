@@ -403,3 +403,114 @@ curl 'https://api.lever.co/v0/postings/spotify?commitment=Permanent'
 # Lever - combined filters
 curl 'https://api.lever.co/v0/postings/spotify?department=Engineering&location=New%20York,%20NY&limit=5'
 ```
+
+---
+
+## 5. Workday Survey
+
+Pre-implementation pass for Workday as a fourth ATS alongside Greenhouse / Lever / Ashby. Research conducted 2026-05-12. No code written, no accounts created — public-page reads only.
+
+### 5.1 Job-listing URL pattern
+
+Canonical shape: `https://{tenant}.wd{N}.myworkdayjobs.com/[{locale}/]{site}`, where:
+- `wd{N}` is the data-center shard the customer was provisioned on (`wd1`, `wd3`, `wd5`, etc.) — varies per company, must be extracted from the careers link, not hardcoded
+- `{tenant}` is the company slug
+- `{site}` is a named career site (a single tenant can host multiple — e.g. external careers vs. campus recruiting)
+
+Example: `nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite`. A secondary variant exists at `jobs.myworkdaysite.com/recruiting/{tenant}/{site}`. Custom-domain fronting is possible but uncommon.
+
+### 5.2 Public JSON endpoint (the good news)
+
+There is an **undocumented but stable** endpoint at:
+
+```
+POST https://{tenant}.wd{N}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs
+Body: {"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": ""}
+```
+
+Returns `{ jobPostings: [{ title, locationsText, externalPath, postedOn, bulletFields, ... }], total }`. Job detail is a follow-up `GET /wday/cxs/{tenant}/{site}/job/{externalPath}`. No auth, no documented hard rate limit (1–2s delay recommended). A bare GET to the listings URL returns HTTP 400 — that's a body-shape rejection, not a bot block (confirmed live against nvidia.wd5).
+
+Multiple commercial scrapers (Apify, jobo.world, fantastic.jobs) sell this as a feature, suggesting it's reliably reachable. **Effort comparable to Greenhouse / Lever / Ashby.**
+
+### 5.3 Apply-flow page count
+
+Roughly **5–7 discrete pages** per application, each a full page navigation with a Next button (not a single scrolling form):
+
+1. Create / sign-in account
+2. Upload resume → autofill
+3. My Information (contact + address)
+4. My Experience (education + work history)
+5. Application Questions (work authorization, salary, role-specific)
+6. Voluntary Disclosures / Self-Identify (EEO + disability + veteran, often on separate substeps)
+7. Review & Submit
+
+No single-page guest-apply analogue to Greenhouse.
+
+### 5.4 Account creation (the bad news)
+
+**Mandatory and per-tenant.** Confirmed by multiple primary sources (Glassdoor, university applicant guides, jobwizard.ai). Every company makes the applicant create a fresh Workday account with that tenant's password rules — there is no federated candidate identity. Email verification is **conditional** (some tenants require it, some don't); 2FA appears occasionally.
+
+For AutoApply this is the dominant cost driver: every new company means signup → likely email-verify round-trip before the wizard even starts, and credentials need to be stored per (profile, tenant). This breaks AutoApply's "one apply session per job, fully automated" assumption.
+
+### 5.5 Form field conventions
+
+Workday uses `data-automation-id="..."` consistently across its framework — internal e2e-test hook, stable across releases. Standard widgets (Next, Save, file upload, address) reuse the same IDs across tenants because they're framework primitives, not customer markup.
+
+**Custom questions** (the per-tenant section) do not get stable automation IDs — those are identified by label text. Net: generic handler is feasible for the wizard chrome; custom questions need the same Claude-backed label-matching pattern already used for Greenhouse / Ashby.
+
+### 5.6 Anti-bot detection
+
+**Unconfirmed which vendor** Workday fronts career sites with — no primary source named Cloudflare / Akamai / DataDome on `*.myworkdayjobs.com`. Indirect signals:
+- The listings API answers an unauthenticated POST cleanly
+- Commercial Apify scrapers run at scale against it
+- Both argue against aggressive challenge-on-first-request
+
+The harder surface is likely the apply wizard, not the listings. Playwright headless is detectable by default (`navigator.webdriver=true`, JA3 fingerprint); the persistent-context + non-headless pattern AutoApply already uses mitigates the cheap checks. **Assume occasional CAPTCHA at signup/login** — the existing `captcha_handler` prompt pattern would cover it. No verified evidence of hard blocks today.
+
+### 5.7 Per-tenant variance
+
+- **Page sequence and chrome widgets** — framework-controlled, stable across tenants
+- **Page content** — customer-configurable; tenants add/remove sections, reorder Voluntary Disclosures, change required fields, write arbitrary custom questions
+
+Realistic split: ~70% of fields are addressable by stable `data-automation-id` (framework primitives), ~30% need label-matching (customer-authored questions). More variance than Greenhouse but less than fully bespoke ATSes.
+
+### 5.8 Existing prior art
+
+Three relevant OSS projects, all small and unmaintained:
+
+- **ubangura/Workday-Application-Automator** — JS/Puppeteer, ~70 stars. Fills contact/education/demographics; doesn't clearly handle the full multi-page wizard.
+- **amgenene/workday_auto** — Python/Selenium, ~12 stars. Closest in spirit to AutoApply's approach: explicit signup-vs-signin branching, iterates pages until complete, uses sentence embeddings for question→answer matching.
+- **simonfong6/auto-apply** — multi-ATS (GH/Lever/Workday/Jobvite), ~32 stars. Workday completeness unclear from README.
+
+None widely adopted. The problem is **partially solved but not in a robust, dependency-grade way** — no off-the-shelf library to lean on.
+
+### 5.9 Scope honestly — TL;DR
+
+**5-session phase, leaning toward 6–7 if email verification gets ugly.** Breakdown:
+
+| Sub-phase | Sessions | Notes |
+|---|---|---|
+| Listings discovery | 1 | `/wday/cxs/.../jobs` endpoint is Greenhouse-equivalent in difficulty. Cheap win, ships value to users on day 1. |
+| Account creation + per-tenant credential storage + email-verify loop | 2 | Net-new infrastructure. Schema changes for per-tenant creds. Email-verify handler reuses the existing IMAP reader to pull the verification link. Signup-vs-signin branching. |
+| Multi-page wizard orchestrator + 5–7 page handlers | 2 | Doable thanks to stable `data-automation-id`. Voluntary Disclosures alone roughly equals current `demographics.py` in surface. |
+| Anti-bot resilience + CAPTCHA at signup | 0.5 | Mostly free by reusing existing CAPTCHA pause infrastructure. |
+
+**The honest case against doing it:** per-tenant account creation is a UX regression, not just an engineering cost. Every new company adds a 30–60s signup detour the user must oversee for email verification.
+
+**Recommendation:** Split into two phases.
+- **Phase 43 — Workday listings discovery** (1 session): build `src/jobs/clients/workday.py` so Workday jobs show up in `/jobs` with fit scores. Doesn't unlock apply; gives users immediate visibility into a much larger jobs universe.
+- **Phase 44 — Workday apply wizard** (4 sessions): gated behind a beta toggle so the account-creation friction is opt-in. Defer until Phase 43 is shipped and users have asked for it.
+
+Punting Phase 44 entirely is also defensible — Workday is roughly 1.5x the engineering surface of Greenhouse with materially worse UX at the account-creation step. The listings-only path is the safe minimum.
+
+### Sources
+
+- [Workday Scraper API spec (jobo.world)](https://jobo.world/ats/workday)
+- [Workday Jobs API (fantastic.jobs)](https://fantastic.jobs/ats/workday)
+- [Apify Workday Job Scraper](https://apify.com/shahidirfan/workday-job-scraper)
+- [Workday Job Applications Made Simple (JobWizard)](https://www.jobwizard.ai/post/workday-job-applications-made-simple)
+- [Glassdoor: per-company Workday accounts](https://www.glassdoor.com/Community/job-hunting-in-tech/why-tf-do-i-have-to-create-a-new-workday-account-for-every-company-i-apply-to-certainly-it-would-be-easier-for-everyone-if-i)
+- [UVA External Applicant guide (PDF)](https://hr.virginia.edu/sites/default/files/TALENT%20COE/Workday/REC-Applicant%20Process%20External.pdf)
+- [ubangura/Workday-Application-Automator](https://github.com/ubangura/Workday-Application-Automator)
+- [amgenene/workday_auto](https://github.com/amgenene/workday_auto)
+- [simonfong6/auto-apply](https://github.com/simonfong6/auto-apply)

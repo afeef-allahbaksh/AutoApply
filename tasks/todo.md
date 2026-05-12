@@ -559,16 +559,78 @@ A reviewer evaluating the project will check: where are the tests? Today the ans
 - [x] ~~**Keyboard-focus styles for `.btn-*`**~~ — shipped: `:focus-visible` declarations on btn-primary/secondary/ghost/danger. Mouse clicks don't trigger the ring (per spec); keyboard nav now shows the indigo accent-glow halo
 - [ ] **309 remaining inline `style=""`** — long-tail bespoke padding/spacing, mostly one-offs. Diminishing returns past today's pass; revisit if a specific page needs another design tweak
 
+## Phase 42: GitHub Actions CI + one-shot ruff cleanup
+
+*Most leverage-per-minute on the portfolio path: every push and PR runs the test suite on a machine that isn't the developer's laptop. CI immediately earned its keep — it surfaced 65 failing tests on the first run due to hardcoded `/Users/afeef/...` paths in test fixtures, a pre-existing latent bug that local pytest could never catch (lesson #20).*
+
+### Shipped
+- [x] `.github/workflows/ci.yml` — two parallel jobs on `ubuntu-latest`, Python 3.12:
+  - **test job** (~80–100s) — installs Pango (WeasyPrint dep), `pip install -r requirements.txt`, `pytest -v`
+  - **lint job** (~20s) — `ruff check src tests`
+  - Triggers: push to any branch + PR to main
+  - pip cache via `actions/setup-python@v5`
+- [x] `pyproject.toml` — `[tool.ruff]` config: select E/W/F/I/B, ignore E501/B008/B905, `tests/*.py` gets F401/F811 pass for the import-then-mock pattern, `line-length=120`, `target-version=py312`
+- [x] One-shot ruff cleanup across 43 files: 65 I001 import sorts, 11 F541 f-string fixes, 7 B904 `raise ... from e`, 6 E402 import reorders, 5 F401 unused-import removals, 2 B007 unused-loop-var renames, 2 F841 unused-variable deletions. All auto-fixable safely except B904 + E402 (manual but mechanical).
+- [x] `requirements.txt` — `ruff>=0.6.0` added under test deps
+- [x] README.md — CI status badge under the H1
+- [x] **Hardcoded test paths fixed** — every test file had `REPO = Path("/Users/afeef/workspace/Projects/AutoApply")` and `sys.path.insert(0, "/Users/afeef/...")` left over from the `/tmp/test_*.py` era. Replaced with portable `Path(__file__).resolve().parent.parent` across 16 files. Lesson #18 spirit; bootstrap is the one legitimate place to compute `Path(__file__)` directly.
+
+### Out of scope (deferred to follow-up phases)
+- **mypy.** Untyped codebase. Full mypy = hundreds of "function missing annotation" warnings that aren't bugs. Add as a focused phase later (start on `src/tasks/`, `src/api.py`, `src/paths.py` — the modules where types actually exist).
+- **Python version matrix.** Single user, single runtime. Re-evaluate when contributors appear.
+- **Coverage reporting** (coverage.py / Codecov). Useful, but adds setup friction; defer until coverage is something we'd actually act on.
+- **Dependency audit** (pip-audit / Dependabot). Bigger conversation; not blocking.
+
+### Verification
+- Pytest baseline: 135/135 green locally before + after the cleanup
+- Ruff: `All checks passed!` post-cleanup
+- YAML: `python -c "import yaml; yaml.safe_load(...)"` clean
+- **First CI run**: failed 65/135 — pre-existing hardcoded-path bug surfaced (see lesson #20)
+- **Second CI run**: 135/135 green, badge live
+
+### Doc-drift caught
+Documentation said "14 suites / 93 tests" — real count is **17 suites / 135 tests**. `CLAUDE.md`, `README.md`, `tests/README.md` all need the bump. Not part of this phase; logged below as a followup.
+
+## Phase 43 — Workday job-listings discovery (planned, 1 session)
+
+*Pre-implementation research in `tasks/research.md` section 5. Workday's listings API is undocumented but stable (`POST /wday/cxs/{tenant}/{site}/jobs`); difficulty roughly Greenhouse-equivalent. Apply-wizard work deferred to Phase 44 because per-tenant account creation is a UX regression that needs separate scoping.*
+
+### Scope (in)
+- [ ] `src/jobs/clients/workday.py` — fetch listings + job detail via the `cxs` endpoint. Shape-of-call mirrors `greenhouse.py` / `lever.py` / `ashby.py`. Returns the same job-dict shape so `src/jobs/filter.py` + `score_jobs_fit` work unchanged.
+- [ ] **Tenant + shard + site extraction** — careers-page URLs encode `{tenant}.wd{N}.myworkdayjobs.com/{locale}/{site}`. The shard (`wd{N}`) varies per company and cannot be hardcoded. Add a parsing helper that takes a careers URL and returns `(tenant, shard, site)`.
+- [ ] `validate_workday_slug` in `src/discovery.py` — verify a (tenant, shard, site) tuple by issuing a single `POST /wday/cxs/.../jobs` with `limit=1`. Wire into the existing `validate_slug` dispatch. UI auto-detect cascade tries greenhouse → lever → ashby → workday.
+- [ ] **Companies schema + UI** — `companies.json` records grow to optionally hold `{shard, site}` alongside `slug` for workday entries. `_companies_main.html` and `jobs.html` ATS dropdowns add `workday`. Manual add form needs an extra "Workday URL" input (or splits into tenant + shard + site fields).
+- [ ] **Seed companies** — add 5–8 well-known Workday tenants to `config/seed_companies.json` (NVIDIA, Salesforce, Goldman Sachs, etc.).
+- [ ] **Tests** — `tests/test_workday_client.py` with mocked HTTP responses; verifies URL parsing, pagination via offset/limit, error handling on 400 / 404.
+
+### Scope (out)
+- Apply wizard — deferred to Phase 44.
+- Per-tenant account creation, credential storage, email-verification loop — Phase 44.
+- Anti-bot resilience tuning — Phase 44 (listings endpoint isn't gated today).
+
+## Phase 44 — Workday apply wizard (deferred, 4–5 sessions, gated behind beta toggle)
+
+*Scoped honestly in `tasks/research.md` section 5.9. Account-creation friction is the dominant cost; the wizard itself is doable thanks to stable `data-automation-id` attributes. Build this only after Phase 43 ships and there's user demand.*
+
+### Sub-scope (planned)
+- [ ] Per-tenant credential store (`profiles/{name}/workday/{tenant}.json`) — encrypted at rest? At minimum filesystem-permission-restricted
+- [ ] Account-creation handler (signup-vs-signin branching) + email-verification handler (reuses existing IMAP reader to pull the verification link, falls back to prompt-channel for manual entry)
+- [ ] Multi-page wizard orchestrator — iterates pages until "Submit Application" appears
+- [ ] Per-page handlers in `src/ats/workday/` mirroring the greenhouse package layout: `my_information.py`, `my_experience.py`, `application_questions.py`, `voluntary_disclosures.py`, `review.py`
+- [ ] Custom-question handler reusing Claude pattern from greenhouse/ashby (Workday-customer questions don't have stable IDs)
+- [ ] UI: "Workday apply (beta)" toggle in Settings; per-row Apply button on Workday jobs only shows when toggle is on
+- [ ] CAPTCHA handling — reuse existing `captcha_handler` prompt channel; assume occasional challenges at signup
+
 ## Followups (small, not-yet-phased)
 - [x] ~~**Flaky test in `tests/test_batch_apply.py::test_cancel_mid_batch_marks_remaining_not_attempted`**~~ — fixed. Root cause was NOT daemon-thread bleed (the earlier guess in lessons.md was wrong); it was a race between `request_cancel` and the `submit_handler` polling in `prompt.ask`. The handler caught `PromptCancelled` and returned `"skip"`, so a cancel mid-prompt fell through `_decide_submit_action` as a real user-skip and got recorded as "skipped" instead of "not_attempted". Fix in `src/ui/routes/apply/batch.py`: handlers no longer swallow `PromptCancelled`; the loop body catches it and skips the `_append_completed` so the cleanup pass marks the index as `not_attempted`. 5/5 in-suite runs pass post-fix (was 3/5 failing)
+- [ ] **Doc drift on test counts** — `CLAUDE.md`, `README.md`, `tests/README.md` all say "14 suites / 93 tests" but real count is **17 suites / 135 tests** (Phase 39 added test_ashby, Phase 40/41 added test_companies_delete + test_jobs_delete). Small one-shot bump.
 
 ## Future (v2+)
 - [ ] Crunchbase / Apollo / Hunter.io for real company + contact discovery (current "Discover companies" only validates a curated seed list)
-- [ ] Workday support
 - [ ] Inbox classifier extension to auto-detect cold-outreach replies (v2.3 from the cold-outreach memory)
 - [ ] Stable application IDs instead of list indices (avoids two-tab drag race)
 - [ ] Background daemon mode for periodic inbox sync without dashboard open
 - [ ] Multi-account inbox (currently single IMAP account per profile)
 - [ ] Deployment shift — currently local-first / single-user / no auth; see `project_deployment_target.md` memory for the move-to-Vercel-or-similar blockers
 - [ ] Migrate JSON files → SQLite once `applications.json` outgrows append-with-rewrite (the atomic-write + jsonschema layer is the right shape to swap the backing store underneath)
-- [ ] GitHub Actions: pytest + mypy + ruff on every push (portfolio signal)
+- [x] ~~GitHub Actions: pytest + mypy + ruff on every push (portfolio signal)~~ — pytest + ruff shipped in Phase 42; mypy deferred to a focused later phase
