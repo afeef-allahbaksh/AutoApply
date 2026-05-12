@@ -228,17 +228,24 @@ def handle_custom_questions(
                                 break
 
                 if answer is None:
-                    if option_labels:
-                        answer = answer_select_question(
-                            label_text, option_labels, job_content,
-                            profile_data, resume_data=resume_data, responses=responses,
-                        )
-                    else:
-                        answer = answer_custom_question(
-                            label_text, job_content, profile_data,
-                            resume_data=resume_data, responses=responses,
-                        )
-                    method = "claude"
+                    try:
+                        if option_labels:
+                            answer = answer_select_question(
+                                label_text, option_labels, job_content,
+                                profile_data, resume_data=resume_data, responses=responses,
+                            )
+                        else:
+                            answer = answer_custom_question(
+                                label_text, job_content, profile_data,
+                                resume_data=resume_data, responses=responses,
+                            )
+                        method = "claude"
+                    except Exception as e:
+                        # Claude API failed — skip this combobox cleanly.
+                        # No reasonable fallback for combobox without options.
+                        print(f"  [custom-q] {q_id}: Claude call failed ({type(e).__name__}); skipping combobox")
+                        q.press("Escape")
+                        continue
 
                 matched = False
                 # Re-scope the click query too — same reason as above.
@@ -284,16 +291,24 @@ def handle_custom_questions(
                         continue
 
                 if answer is None:
-                    answer = answer_custom_question(
-                        label_text, job_content, profile_data,
-                        resume_data=resume_data, responses=responses,
-                    )
-                    method = "claude"
+                    try:
+                        answer = answer_custom_question(
+                            label_text, job_content, profile_data,
+                            resume_data=resume_data, responses=responses,
+                        )
+                        method = "claude"
+                    except Exception as e:
+                        # Claude API failed (out of credits, rate limit, network).
+                        # Fall through to required-field fallback rather than
+                        # crashing the whole field handler.
+                        print(f"  [custom-q] {q_id}: Claude call failed ({type(e).__name__}); will try profile fallback")
+                        answer = ""
+                        method = "claude_failed"
 
-                # Required-field fallback: if Claude punted on a question that's
-                # clearly asking for the applicant's location, fill with the
-                # profile location rather than leave a required field blank.
-                # The form will reject submission otherwise.
+                # Required-field fallback: if Claude punted (or crashed) on a
+                # question that's clearly asking for the applicant's location,
+                # fill with the profile location rather than leave a required
+                # field blank. The form will reject submission otherwise.
                 if (not answer or not answer.strip()) and is_required:
                     location_keywords = ["city", "state", "country", "based",
                                          "where do you", "where will you",
@@ -357,17 +372,22 @@ def handle_custom_questions(
                                 break
 
                 if answer is None:
-                    if option_labels:
-                        answer = answer_select_question(
-                            label_text, option_labels, job_content,
-                            profile_data, resume_data=resume_data, responses=responses,
-                        )
-                    else:
-                        answer = answer_custom_question(
-                            label_text, job_content, profile_data,
-                            resume_data=resume_data, responses=responses,
-                        )
-                    method = "claude"
+                    try:
+                        if option_labels:
+                            answer = answer_select_question(
+                                label_text, option_labels, job_content,
+                                profile_data, resume_data=resume_data, responses=responses,
+                            )
+                        else:
+                            answer = answer_custom_question(
+                                label_text, job_content, profile_data,
+                                resume_data=resume_data, responses=responses,
+                            )
+                        method = "claude"
+                    except Exception as e:
+                        # Claude API failed — skip this native select.
+                        print(f"  [custom-q] {q_id}: Claude call failed ({type(e).__name__}); skipping native select")
+                        continue
                 try:
                     q.select_option(label=answer)
                     answered.append({"question": label_text[:100], "answer": answer[:100], "method": method})
