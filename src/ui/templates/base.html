@@ -370,6 +370,88 @@
       box-shadow: var(--shadow-accent-glow);
     }
 
+    /* File-drop — replaces the native <input type=file> with a styled drop zone.
+       Used by the resume upload + project-pool-add forms on Settings. Pattern:
+         <label class="file-drop">
+           <input type="file" name="..." accept="...">
+           <span class="file-drop__icon">↑</span>
+           <span class="file-drop__title">Choose PDF</span>
+           <span class="file-drop__hint">or drag and drop</span>
+           <span class="file-drop__filename" data-empty="No file selected"></span>
+         </label>
+       The static <script> at the bottom of base.html wires the change handler
+       (shows filename) + drag-and-drop styling for every .file-drop on a page. */
+    .file-drop {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.375rem;
+      padding: 1.375rem 1rem;
+      border: 1.5px dashed var(--rule-bold);
+      border-radius: var(--radius-md);
+      background: var(--canvas-sunken);
+      cursor: pointer;
+      text-align: center;
+      transition: border-color var(--duration-fast) var(--ease),
+                  background var(--duration-fast) var(--ease),
+                  transform var(--duration-fast) var(--ease);
+    }
+    .file-drop:hover {
+      border-color: var(--accent);
+      background: var(--accent-tint);
+    }
+    .file-drop.is-dragover {
+      border-color: var(--accent);
+      background: var(--accent-tint);
+      transform: scale(1.005);
+    }
+    .file-drop.is-selected {
+      border-style: solid;
+      border-color: var(--accent);
+      background: rgba(129, 140, 248, 0.05);
+    }
+    .file-drop input[type=file] {
+      position: absolute;
+      width: 1px; height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .file-drop__icon {
+      font-size: 22px;
+      line-height: 1;
+      color: var(--accent);
+      transform: translateY(-1px);
+    }
+    .file-drop__title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ink);
+    }
+    .file-drop__hint {
+      font-size: 11px;
+      color: var(--ink-soft);
+    }
+    .file-drop__filename {
+      font-size: 11.5px;
+      color: var(--ink-muted);
+      font-family: var(--font-mono, 'Geist Mono', monospace);
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .file-drop__filename.is-selected { color: var(--accent); }
+    .file-drop.is-disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+    .file-drop.is-disabled:hover {
+      border-color: var(--rule-bold);
+      background: var(--canvas-sunken);
+    }
+
     .badge {
       display: inline-flex; align-items: center;
       padding: 0.1875rem 0.5rem;
@@ -563,5 +645,66 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+
+  <script>
+    // Wire every .file-drop: show the picked filename + visual selected
+    // state on change; respond to drag-and-drop. Runs once on page load
+    // (no MutationObserver — file-drops are static template fragments,
+    // not HTMX-swapped today).
+    (function () {
+      function wireFileDrop(drop) {
+        var input = drop.querySelector('input[type=file]');
+        if (!input) return;
+        var fname = drop.querySelector('.file-drop__filename');
+        var emptyText = fname ? (fname.dataset.empty || '') : '';
+
+        if (input.disabled) drop.classList.add('is-disabled');
+
+        function reflect() {
+          var f = input.files && input.files[0];
+          if (f) {
+            drop.classList.add('is-selected');
+            if (fname) {
+              fname.textContent = f.name;
+              fname.classList.add('is-selected');
+            }
+          } else {
+            drop.classList.remove('is-selected');
+            if (fname) {
+              fname.textContent = emptyText;
+              fname.classList.remove('is-selected');
+            }
+          }
+        }
+        input.addEventListener('change', reflect);
+        reflect();
+
+        // Drag-and-drop — the native <input> handles a drop on itself, but
+        // it's invisible. Forward drag events from the .file-drop label.
+        ['dragenter', 'dragover'].forEach(function (ev) {
+          drop.addEventListener(ev, function (e) {
+            if (input.disabled) return;
+            e.preventDefault();
+            drop.classList.add('is-dragover');
+          });
+        });
+        ['dragleave', 'drop'].forEach(function (ev) {
+          drop.addEventListener(ev, function (e) {
+            e.preventDefault();
+            drop.classList.remove('is-dragover');
+          });
+        });
+        drop.addEventListener('drop', function (e) {
+          if (input.disabled) return;
+          var dt = e.dataTransfer;
+          if (dt && dt.files && dt.files.length) {
+            input.files = dt.files;
+            reflect();
+          }
+        });
+      }
+      document.querySelectorAll('.file-drop').forEach(wireFileDrop);
+    })();
+  </script>
 </body>
 </html>

@@ -5,6 +5,7 @@ import time
 from datetime import date
 from pathlib import Path
 
+from src.ats.ashby import fill_ashby_application
 from src.ats.greenhouse import fill_greenhouse_application
 from src.ats.lever import fill_lever_application
 from src.profile_loader import PROFILES_DIR, _atomic_write_json, normalize_posting_url
@@ -236,6 +237,8 @@ def _fill_with_captcha_retry(
         fill_fn = fill_greenhouse_application
     elif ats == "lever":
         fill_fn = fill_lever_application
+    elif ats == "ashby":
+        fill_fn = fill_ashby_application
     else:
         print(f"  Skipped: unsupported ATS '{ats}'")
         return {"success": False, "error": f"unsupported ATS '{ats}'", "_unsupported": True}

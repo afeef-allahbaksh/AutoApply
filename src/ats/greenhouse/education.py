@@ -97,13 +97,19 @@ def fill_education_section(page: Page, resume_data: dict | None) -> list[str]:
                         if select_option_fuzzy_el(el, degree):
                             filled.append(f"education_{i}_degree")
                     elif role == "combobox":
-                        # React Select — click to focus, clear, type, pick from dropdown
+                        # React Select — click to focus, clear, type, pick from dropdown.
+                        # Scope to `.select__menu` so the intl-tel-input phone country
+                        # picker's 240+ ambient role=option elements don't poison the pick.
                         el.click()
                         time.sleep(0.3)
                         el.fill("")
                         el.type(degree, delay=50)
                         time.sleep(1.0)
-                        option = page.locator('[role="option"]').first
+                        menu = page.locator('.select__menu').first
+                        option = (
+                            menu.locator('[role="option"]').first
+                            if menu.count() > 0 else page.locator('[role="option"]').first
+                        )
                         try:
                             if option.is_visible(timeout=1500):
                                 option.click()

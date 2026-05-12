@@ -12,7 +12,7 @@
       },
       "ats": {
         "type": "string",
-        "enum": ["greenhouse", "lever"]
+        "enum": ["greenhouse", "lever", "ashby"]
       },
       "slug": {
         "type": "string",

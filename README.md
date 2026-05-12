@@ -98,16 +98,17 @@ The optimizer prints a diff of every change before saving so you can see what ch
 
 ## ATS support
 
-| Feature | Greenhouse | Lever |
-|---|---|---|
-| Job discovery | ✓ | ✓ |
-| Form filling | ✓ (incl. React Select dropdowns, date pickers) | ✓ |
-| Resume upload | ✓ | ✓ |
-| Custom questions | Canned responses + Claude fallback | Canned responses + Claude fallback |
-| Cover letter | Auto-generated when required | ✓ |
-| CAPTCHA | Pauses with a modal for manual solve | Pauses with a modal for manual solve |
+| Feature | Greenhouse | Lever | Ashby |
+|---|---|---|---|
+| Job discovery | ✓ | ✓ | ✓ |
+| Form filling | ✓ (incl. React Select dropdowns, date pickers) | ✓ | ✓ |
+| Resume upload | ✓ | ✓ | ✓ |
+| Custom questions | Canned + Claude fallback | Canned + Claude fallback | Canned + Claude fallback |
+| Cover letter | Auto-generated when required | ✓ | — |
+| CAPTCHA | Pauses with a modal for manual solve | Pauses with a modal for manual solve | Pauses with a modal for manual solve |
+| Email verification | Auto-detect + prompt-channel pause | — | — |
 
-Ashby, Workday, and other ATSes are planned but not in this version.
+Workday is planned but not in this version (heavier auth flows, inconsistent per-company).
 
 ## Application flow
 

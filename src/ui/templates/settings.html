@@ -82,20 +82,34 @@
 
   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; max-width: 720px;">
     <form method="post" action="/settings/resume/import" enctype="multipart/form-data"
-          style="display: flex; flex-direction: column; gap: 0.5rem;">
+          style="display: flex; flex-direction: column; gap: 0.75rem;">
       <label class="section-label">Import full resume</label>
-      <input type="file" name="file" accept="application/pdf" required
-             style="font-size: 12.5px; color: var(--ink); padding: 0.25rem 0;">
+      <label class="file-drop">
+        <input type="file" name="file" accept="application/pdf" required>
+        <span class="file-drop__icon">↑</span>
+        <span class="file-drop__title">Choose PDF</span>
+        <span class="file-drop__hint">or drag and drop</span>
+        <span class="file-drop__filename" data-empty="No file selected"></span>
+      </label>
       <button type="submit" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 12.5px;">
         {{ 'Re-import (overwrites)' if resume_info.exists else 'Import resume PDF' }}
       </button>
     </form>
     <form method="post" action="/settings/resume/projects/add" enctype="multipart/form-data"
-          style="display: flex; flex-direction: column; gap: 0.5rem;">
+          style="display: flex; flex-direction: column; gap: 0.75rem;">
       <label class="section-label">Add projects from another PDF</label>
-      <input type="file" name="file" accept="application/pdf" required
-             {% if not resume_info.exists %}disabled{% endif %}
-             style="font-size: 12.5px; color: var(--ink); padding: 0.25rem 0;">
+      <label class="file-drop">
+        <input type="file" name="file" accept="application/pdf" required
+               {% if not resume_info.exists %}disabled{% endif %}>
+        <span class="file-drop__icon">+</span>
+        <span class="file-drop__title">
+          {% if resume_info.exists %}Choose PDF{% else %}Import a resume first{% endif %}
+        </span>
+        <span class="file-drop__hint">
+          {% if resume_info.exists %}or drag and drop{% else %}then come back to add more projects{% endif %}
+        </span>
+        <span class="file-drop__filename" data-empty="No file selected"></span>
+      </label>
       <button type="submit" class="btn-primary" style="padding: 0.5rem 1rem; font-size: 12.5px;"
               {% if not resume_info.exists %}disabled{% endif %}>Add projects</button>
     </form>

@@ -1,12 +1,15 @@
 import json
-from pathlib import Path
 from jsonschema import validate
 
-SCHEMA_DIR = Path(__file__).resolve().parent.parent / "config"
+from src.paths import CONFIG_DIR
+
+# Back-compat alias; new code should import `CONFIG_DIR` directly from
+# `src.paths`.
+SCHEMA_DIR = CONFIG_DIR
 
 
 def _load_schema(name: str) -> dict:
-    schema_path = SCHEMA_DIR / f"{name}_schema.json"
+    schema_path = CONFIG_DIR / f"{name}_schema.json"
     with open(schema_path) as f:
         return json.load(f)
 

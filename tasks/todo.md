@@ -479,8 +479,71 @@ Top-level profile files (`profiles/{name}/*.json`):
 
 A reviewer evaluating the project will check: where are the tests? Today the answer is "in /tmp, you can't see them." That looks like there are no tests. After Phase 37, `pytest` finds 14 suites + ~110 checks in a clean `tests/` directory — that's a real signal.
 
+## Phase 38: Defense-in-depth bundle
+
+*Two small changes that prevent recurrence of bugs we already hit. The `[role="option"]` page-wide query problem (which broke the Mercury visa dropdown) existed in 4 other places — applied the same `.select__menu` scoping pattern preemptively. The custom-question handler was re-processing fields the standard handler already filled (LinkedIn got Claude-answered redundantly on Mercury) — fixed by passing a `filled_ids` set to skip them.*
+
+### Result
+- 4 vulnerable `[role="option"]` sites scoped to `.select__menu`: `demographics.py` (2 queries in `_fill_combobox_with_decline`), `education.py:106` (degree React Select), `application.py:110` (candidate-location combobox)
+- `application.py` standard fields loop now tracks filled element ids; passes `filled_ids | demo_ids` as `skip_ids` to `handle_custom_questions` so the second pass doesn't redundantly Claude-call already-handled fields
+- All 93 tests still green
+
+### Scope (in)
+
+1. **`.select__menu` scoping** at 4 sites that use the same vulnerable pattern as the visa-dropdown bug:
+   - `demographics.py:69, 92` — `_fill_combobox_with_decline` (collect options + click matched)
+   - `education.py:106` — degree React Select option click
+   - `application.py:110` — candidate-location combobox option click
+
+2. **Skip already-filled fields** — orchestrator passes `filled_ids` (the union of standard-field ids + demographic ids) into `handle_custom_questions`; handler short-circuits on match. Saves redundant Claude calls + prevents the LinkedIn double-processing pattern.
+
+### Scope (out — narrowed from original ambition)
+
+- **`except Exception:` triage in `ats/greenhouse/`** (37 sites). After audit: most are intentional "try this selector strategy, fall back to next" patterns where any error means "this strategy didn't work, try the next one." Narrowing them site-by-site requires knowing which specific Playwright errors are expected at each call — high risk of regression for modest gain. Defer.
+- `education.py:68` and `location.py:29` use `[role="option"]` for **Google Places autocomplete** (the `.pac-item` widget), not React Select. Different DOM lifecycle — no `.select__menu` to scope to. Leave alone unless we see a concrete bug.
+- Schema validators for `jobs.json` / `outreach.json` — over-engineering until we have a multi-writer scenario (today: single producer each, schema enforced by code structure).
+
+## Phase 39: Ashby ATS support
+
+*Added a third ATS. Mirrors the Greenhouse + Lever pattern end-to-end: per-ATS API client in `src/jobs/clients/`, per-ATS form-fill package in `src/ats/`, dispatch via `applicant._fill_with_captcha_retry`. Opens up application paths for Notion, Linear, Ramp, OpenAI, Perplexity, etc. — companies on Ashby that weren't reachable before.*
+
+### Result
+- `src/jobs/clients/ashby.py` fetches from the public Ashby board API; verified live against Linear's slug
+- `src/ats/ashby/` package: `fields.py`, `selectors.py`, `custom_questions.py`, `application.py` — mirrors greenhouse layout
+- `_fill_with_captcha_retry` dispatches `ashby → fill_ashby_application` alongside greenhouse/lever
+- 8 Ashby seed companies added to `config/seed_companies.json`
+- UI dropdowns + auto-detect cascade include ashby
+- All 93 tests still green
+- CLAUDE.md + README ATS support table updated; "Greenhouse + Lever only" key rule lifted
+
+### Scope (in)
+
+- **Job discovery**: `src/jobs/clients/ashby.py` — fetches from `api.ashbyhq.com/posting-api/job-board/{slug}` (public, no auth). Normalizes to the same job-dict shape as greenhouse/lever
+- **Company discovery**: `validate_ashby_slug` in `src/discovery.py`, wired into the existing `validate_slug` dispatch. UI auto-detect cascade tries greenhouse → lever → ashby in order
+- **Form filling**: `src/ats/ashby/` package mirroring greenhouse layout — `fields.py`, `selectors.py`, `custom_questions.py`, `application.py`. Targets Ashby's React Hook Form based forms (form fields use `_systemfield_*` name convention)
+- **Dispatch**: `src/applicant.py:_fill_with_captcha_retry` gets an `elif ats == "ashby"` branch
+- **UI**: `_companies_main.html` + `jobs.html` ATS dropdowns add ashby option
+- **Seed**: a few well-known Ashby companies added to `config/seed_companies.json` (Linear, Notion, Ramp, Vercel — note: some companies move between ATSes, so validation will skip invalid slugs)
+
+### Scope (out)
+
+- **Selector polish** — Ashby's form HTML varies less than Greenhouse's, but real-form iteration is still needed to handle company-specific customizations. Initial implementation covers the common case; expect to iterate when actually submitting through Ashby boards
+- **Workday** — explicitly deferred. Workday's auth flows are heavier (account creation gate, multi-page wizards) and inconsistent per-company
+
+## Phase 40: Companies — remove button (queued)
+
+*Real product gap surfaced during Phase 39 testing: there's no way to remove a company without manually editing `companies.json`. Three legitimate reasons to delete: recover from typos / wrong auto-detect, curate the list to targets-only, drop companies that migrated off the supported ATSes.*
+
+### Plan
+
+- Per-row hover-revealed × button in `_companies_main.html`, mirroring the application-card delete pattern
+- JS `confirm("Remove {company}?")` to prevent fat-finger deletes
+- New `POST /companies/{slug}/delete` route: lock, filter list, `_atomic_write_json`, 303 redirect to `/companies?removed={name}`
+- Does NOT delete associated applications (composite-key dedup keeps them independent — history stays intact)
+- Does NOT remove jobs.json entries (next Refresh re-fetches and naturally drops them)
+- 1 new pytest case
+
 ## Future (v2+)
-- [ ] Ashby ATS support
 - [ ] Crunchbase / Apollo / Hunter.io for real company + contact discovery (current "Discover companies" only validates a curated seed list)
 - [ ] Workday support
 - [ ] Inbox classifier extension to auto-detect cold-outreach replies (v2.3 from the cold-outreach memory)

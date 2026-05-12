@@ -1,7 +1,9 @@
 from pathlib import Path
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.discovery import _load_companies, _save_companies, discover_companies, validate_slug
 from src.profile_loader import PROFILES_DIR
@@ -91,9 +93,23 @@ def add_company(
     slug: str = Form(...),
     ats: str = Form("auto"),
 ):
+    """Add a company via the Add-company form.
+
+    The form is plain HTML POST (not HTMX), so the response must be a 303
+    redirect to GET /companies — returning the `_companies_main.html` partial
+    would render the page without the `base.html` chrome (no sidebar, no
+    theme). The GET handler accepts `?error=` and `?added=` query params for
+    user feedback.
+    """
+    def _redirect_error(msg: str) -> RedirectResponse:
+        return RedirectResponse(url=f"/companies?error={quote(msg)}", status_code=303)
+
+    def _redirect_added(msg: str) -> RedirectResponse:
+        return RedirectResponse(url=f"/companies?added={quote(msg)}", status_code=303)
+
     slug = slug.strip().lower()
     if not slug:
-        raise HTTPException(status_code=400, detail="slug is required")
+        return _redirect_error("Slug is required.")
 
     profile_name = state.active_profile()
     lock = state.profile_lock(profile_name)
@@ -102,10 +118,7 @@ def add_company(
         companies = _all_companies(profile_name)
         existing = {c["slug"] for c in companies}
         if slug in existing:
-            return _render_companies_main(
-                request, profile_name,
-                error=f"'{slug}' is already in the list.",
-            )
+            return _redirect_error(f"'{slug}' is already in the list.")
 
         if ats == "auto":
             result = validate_slug(slug, "greenhouse")
@@ -113,26 +126,23 @@ def add_company(
             if not result:
                 result = validate_slug(slug, "lever")
                 detected = "lever"
-        elif ats in ("greenhouse", "lever"):
+            if not result:
+                result = validate_slug(slug, "ashby")
+                detected = "ashby"
+        elif ats in ("greenhouse", "lever", "ashby"):
             result = validate_slug(slug, ats)
             detected = ats
         else:
-            raise HTTPException(status_code=400, detail=f"invalid ats: {ats}")
+            return _redirect_error(f"Invalid ATS: {ats}")
 
         if not result:
-            target = "Greenhouse or Lever" if ats == "auto" else ats
-            return _render_companies_main(
-                request, profile_name,
-                error=f"Could not find '{slug}' on {target}.",
-            )
+            target = "Greenhouse, Lever, or Ashby" if ats == "auto" else ats
+            return _redirect_error(f"Could not find '{slug}' on {target}.")
 
         companies.append(result)
         _save_companies(profile_name, companies)
 
-    return _render_companies_main(
-        request, profile_name,
-        added=f"Added {result['name']} ({detected}).",
-    )
+    return _redirect_added(f"Added {result['name']} ({detected}).")
 
 
 def _discover_worker(profile_name: str) -> None:

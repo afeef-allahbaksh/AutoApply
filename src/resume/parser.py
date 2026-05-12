@@ -1,12 +1,12 @@
 import json
-from pathlib import Path
 
 import pdfplumber
 
 from src.api import create_message, strip_code_fences
+from src.profile_loader import CONFIG_DIR
 from src.schemas import validate_resume
 
-RESUME_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "config" / "resume_schema.json"
+RESUME_SCHEMA_PATH = CONFIG_DIR / "resume_schema.json"
 
 PARSE_PROMPT = """You are a resume parser. Given raw text extracted from a PDF resume, convert it into a structured JSON object.
 
