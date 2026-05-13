@@ -4,6 +4,7 @@ from datetime import date
 
 import requests
 
+from src.jobs.clients.workday import parse_workday_url, probe_workday
 from src.profile_loader import CONFIG_DIR, PROFILES_DIR, _atomic_write_json
 from src.schemas import validate_companies
 
@@ -90,15 +91,55 @@ def validate_ashby_slug(slug: str) -> dict | None:
     }
 
 
+def validate_workday_url(url: str) -> dict | None:
+    """Validate a Workday careers URL. Returns company dict (with shard/site/
+    locale fields) or None if the URL doesn't match a known Workday pattern
+    or the cxs endpoint isn't reachable.
+
+    Unlike the slug-based ATSes, Workday needs the data-center shard and the
+    named career site in addition to the tenant — the regex parser pulls all
+    three out of the URL up front.
+    """
+    parsed = parse_workday_url(url)
+    if not parsed:
+        return None
+    if probe_workday(parsed["tenant"], parsed["shard"], parsed["site"]) is None:
+        return None
+    return {
+        "name": parsed["tenant"].title(),
+        "ats": "workday",
+        "slug": parsed["tenant"],
+        "careers_url": url.strip().rstrip("/"),
+        "added": date.today().isoformat(),
+        "shard": parsed["shard"],
+        "site": parsed["site"],
+        "locale": parsed["locale"],
+    }
+
+
 def validate_slug(slug: str, ats: str) -> dict | None:
-    """Validate a slug against the appropriate ATS API."""
+    """Validate a slug against the appropriate ATS API.
+
+    For Workday, the `slug` parameter is actually a careers URL (see
+    `validate_workday_url`). The cascade in the companies-add route uses
+    `looks_like_workday_url` to route URL-shaped input through here.
+    """
     if ats == "greenhouse":
         return validate_greenhouse_slug(slug)
     elif ats == "lever":
         return validate_lever_slug(slug)
     elif ats == "ashby":
         return validate_ashby_slug(slug)
+    elif ats == "workday":
+        return validate_workday_url(slug)
     return None
+
+
+def _validate_seed_entry(entry: dict) -> dict | None:
+    """Validate one seed-file entry. Handles workday's URL-not-slug shape."""
+    if entry["ats"] == "workday":
+        return validate_workday_url(entry["url"])
+    return validate_slug(entry["slug"], entry["ats"])
 
 
 
@@ -186,7 +227,7 @@ def discover_companies(
     cancelled = False
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
-            pool.submit(validate_slug, entry["slug"], entry["ats"]): entry
+            pool.submit(_validate_seed_entry, entry): entry
             for entry in to_validate
         }
         for future in as_completed(futures):

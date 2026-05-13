@@ -12,7 +12,7 @@
       },
       "ats": {
         "type": "string",
-        "enum": ["greenhouse", "lever", "ashby"]
+        "enum": ["greenhouse", "lever", "ashby", "workday"]
       },
       "slug": {
         "type": "string",
@@ -25,6 +25,21 @@
       "added": {
         "type": "string",
         "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+      },
+      "shard": {
+        "type": "string",
+        "pattern": "^wd\\d+$",
+        "description": "Workday only — the data-center shard (wd1, wd3, wd5, etc.)."
+      },
+      "site": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Workday only — the named career site (e.g. NVIDIAExternalCareerSite)."
+      },
+      "locale": {
+        "type": "string",
+        "pattern": "^[a-z]{2}-[A-Z]{2}$",
+        "description": "Workday only — locale segment of the careers URL (e.g. en-US)."
       }
     },
     "additionalProperties": false

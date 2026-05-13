@@ -14,11 +14,16 @@ from .classify import classify_jobs_by_country, classify_jobs_by_level, score_jo
 from .clients.ashby import fetch_ashby_jobs
 from .clients.greenhouse import fetch_greenhouse_jobs
 from .clients.lever import fetch_lever_jobs
+from .clients.workday import fetch_workday_jobs
 from .filter import deduplicate_jobs, filter_jobs
 
 
 def fetch_jobs_for_company(company: dict) -> list[dict]:
-    """Fetch jobs for a single company entry from companies.json."""
+    """Fetch jobs for a single company entry from companies.json.
+
+    Workday takes the whole record (needs shard + site); the other three
+    take just the slug.
+    """
     ats = company["ats"]
     slug = company["slug"]
     if ats == "greenhouse":
@@ -27,6 +32,8 @@ def fetch_jobs_for_company(company: dict) -> list[dict]:
         return fetch_lever_jobs(slug)
     elif ats == "ashby":
         return fetch_ashby_jobs(slug)
+    elif ats == "workday":
+        return fetch_workday_jobs(company)
     return []
 
 

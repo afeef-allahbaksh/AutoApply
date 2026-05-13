@@ -238,5 +238,20 @@
   {
     "slug": "betterment",
     "ats": "greenhouse"
+  },
+  {
+    "slug": "nvidia",
+    "ats": "workday",
+    "url": "https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite"
+  },
+  {
+    "slug": "salesforce",
+    "ats": "workday",
+    "url": "https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site"
+  },
+  {
+    "slug": "blackrock",
+    "ats": "workday",
+    "url": "https://blackrock.wd1.myworkdayjobs.com/en-US/BlackRock_Professional"
   }
 ]

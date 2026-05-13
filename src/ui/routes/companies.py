@@ -5,6 +5,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.discovery import _load_companies, _save_companies, discover_companies, validate_slug
+from src.jobs.clients.workday import looks_like_workday_url
 from src.profile_loader import PROFILES_DIR
 from src.tasks import runner
 
@@ -106,36 +107,61 @@ def add_company(
     def _redirect_added(msg: str) -> RedirectResponse:
         return RedirectResponse(url=f"/companies?added={quote(msg)}", status_code=303)
 
-    slug = slug.strip().lower()
-    if not slug:
+    # Workday users paste a full careers URL into this field; preserve case
+    # (site names are case-sensitive). For slug-shaped input we lowercase.
+    raw = slug.strip()
+    if not raw:
         return _redirect_error("Slug is required.")
+    is_workday_url = looks_like_workday_url(raw)
+    slug = raw if is_workday_url else raw.lower()
 
     profile_name = state.active_profile()
     lock = state.profile_lock(profile_name)
 
     with lock:
         companies = _all_companies(profile_name)
+        # For Workday we dedupe by tenant (which becomes the slug after validation);
+        # for the others we dedupe on the raw lowercase slug. Both end up in
+        # `companies[*].slug` so the existing set check still works after add.
         existing = {c["slug"] for c in companies}
-        if slug in existing:
+        if not is_workday_url and slug in existing:
             return _redirect_error(f"'{slug}' is already in the list.")
 
         if ats == "auto":
-            result = validate_slug(slug, "greenhouse")
-            detected = "greenhouse"
-            if not result:
-                result = validate_slug(slug, "lever")
-                detected = "lever"
-            if not result:
-                result = validate_slug(slug, "ashby")
-                detected = "ashby"
+            if is_workday_url:
+                result = validate_slug(slug, "workday")
+                detected = "workday"
+            else:
+                result = validate_slug(slug, "greenhouse")
+                detected = "greenhouse"
+                if not result:
+                    result = validate_slug(slug, "lever")
+                    detected = "lever"
+                if not result:
+                    result = validate_slug(slug, "ashby")
+                    detected = "ashby"
+        elif ats == "workday":
+            if not is_workday_url:
+                return _redirect_error(
+                    "Workday needs the full careers URL "
+                    "(e.g. https://acme.wd1.myworkdayjobs.com/en-US/AcmeCareers)."
+                )
+            result = validate_slug(slug, "workday")
+            detected = "workday"
         elif ats in ("greenhouse", "lever", "ashby"):
             result = validate_slug(slug, ats)
             detected = ats
         else:
             return _redirect_error(f"Invalid ATS: {ats}")
 
+        # Late dupe check for Workday — we only know the tenant after validation.
+        if result and result["slug"] in existing:
+            return _redirect_error(f"'{result['slug']}' is already in the list.")
+
         if not result:
-            target = "Greenhouse, Lever, or Ashby" if ats == "auto" else ats
+            target = (
+                "Greenhouse, Lever, Ashby, or Workday" if ats == "auto" else ats
+            )
             return _redirect_error(f"Could not find '{slug}' on {target}.")
 
         companies.append(result)

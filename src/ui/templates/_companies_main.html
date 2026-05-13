@@ -122,9 +122,12 @@
       {% endif %}
       <form method="post" action="/companies" style="display: flex; flex-direction: column; gap: 0.875rem;">
         <div>
-          <label for="slug" class="section-label form-label">Slug</label>
+          <label for="slug" class="section-label form-label">Slug or Workday URL</label>
           <input id="slug" class="pill-input form-input-full" name="slug" placeholder="e.g. anthropic" required>
-          <p style="font-size: 11px; color: var(--ink-muted); margin-top: 0.25rem;">The URL-safe identifier from greenhouse.io, lever.co, or ashbyhq.com.</p>
+          <p style="font-size: 11px; color: var(--ink-muted); margin-top: 0.25rem;">
+            Greenhouse / Lever / Ashby: short slug from the careers URL (e.g. <code>anthropic</code>).<br>
+            Workday: paste the full careers URL (e.g. <code>https://acme.wd1.myworkdayjobs.com/en-US/AcmeCareers</code>).
+          </p>
         </div>
         <div>
           <label for="ats" class="section-label form-label">ATS</label>
@@ -133,6 +136,7 @@
             <option value="greenhouse">greenhouse</option>
             <option value="lever">lever</option>
             <option value="ashby">ashby</option>
+            <option value="workday">workday</option>
           </select>
         </div>
         <button type="submit" class="btn-primary" style="justify-content: center;">Add</button>
