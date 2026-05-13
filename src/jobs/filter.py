@@ -1,9 +1,22 @@
 """Pre-LLM filtering: keyword scoring, location matching, dedup.
 
 These run before any Claude calls — cheap, deterministic, do most of the work."""
+import re
+
 from src.profile_loader import normalize_posting_url
 
 NO_PREFERENCE = {"any", "no preference", "anywhere", "all"}
+
+# Word-boundary match: "Intern", "Interns", "Internship" — NOT "Internal" / "International".
+_INTERN_RE = re.compile(r"\bintern(?:s|ship)?\b", re.IGNORECASE)
+
+
+def _wants_internships(experience_levels: list[str]) -> bool:
+    return any("intern" in level.lower() for level in experience_levels)
+
+
+def _is_internship_title(title: str) -> bool:
+    return bool(_INTERN_RE.search(title))
 
 
 def _matches_any(text: str, keywords: list[str]) -> bool:
@@ -70,16 +83,23 @@ def filter_jobs(jobs: list[dict], preferences: dict) -> list[dict]:
 
     A job passes if:
     1. Title matches at least one role keyword, AND
-    2. Location matches at least one preferred location (or job is Remote)
+    2. Location matches at least one preferred location (or job is Remote), AND
+    3. Title is not an internship — unless the user wants internships
+       (any experience_level containing "intern" disables the drop).
     """
     roles = preferences.get("roles", [])
     locations = preferences.get("locations", [])
+    levels = preferences.get("experience_levels", [])
+    drop_internships = not _wants_internships(levels)
 
     matched = []
     for job in jobs:
         title = job["title"]
 
         if not _matches_any(title, roles):
+            continue
+
+        if drop_internships and _is_internship_title(title):
             continue
 
         job_loc = job["location"]
