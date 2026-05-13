@@ -210,5 +210,33 @@
   {
     "slug": "anysphere",
     "ats": "ashby"
+  },
+  {
+    "slug": "affirm",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "sofi",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "jumptrading",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "block",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "carta",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "marqeta",
+    "ats": "greenhouse"
+  },
+  {
+    "slug": "betterment",
+    "ats": "greenhouse"
   }
 ]
