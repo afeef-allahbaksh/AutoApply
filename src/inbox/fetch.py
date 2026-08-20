@@ -1,8 +1,16 @@
-"""IMAP message fetching — bulk-FETCH on a single connection.
+"""IMAP message fetching — one read-only connection, addressed by UID.
 
-Two-phase: cheap header pull on all matching messages, then full body fetch
-only for prefilter survivors. Both phases use bulk FETCH (chunked sequence
-sets) so a sync of thousands of messages takes seconds, not minutes.
+Everything here is UID-based on purpose. IMAP *sequence* numbers are only valid
+for the lifetime of one mailbox session and shift whenever a message is
+expunged, so header-fetching on one connection and body-fetching on another (as
+this module used to do) can staple a body onto the wrong header — silently, and
+with no error to notice. UIDs are stable for the life of the mailbox, guarded by
+UIDVALIDITY.
+
+`Mailbox` owns a single authenticated connection for the whole sync: search,
+paged header pulls, then bodies for the survivors. Two-phase is still the shape
+— headers are tiny and let the caller drop known/noise messages before paying
+for full bodies.
 """
 import email
 import html as html_module
@@ -12,6 +20,7 @@ import time
 from datetime import datetime
 from email.message import Message
 from email.utils import parseaddr, parsedate_to_datetime
+from typing import Iterator
 
 from src.inbox.auth import ImapCredentials, open_imap
 
@@ -21,6 +30,11 @@ HEADER_FIELDS = "Subject From To Date Message-ID References In-Reply-To"
 # tiny so we go big; bodies can be hundreds of KB each so we keep groups small.
 HEADER_BULK_CHUNK = 500
 BODY_BULK_CHUNK = 50
+# Coverage-commit granularity for the sync's paging loop. Smaller than the bulk
+# chunk so a budget cut-off wastes less work; still one round-trip per page.
+HEADER_PAGE = 200
+
+_UID_RE = re.compile(rb"UID\s+(\d+)")
 
 
 def _html_to_text(html: str) -> str:
@@ -93,12 +107,14 @@ def _chunked(items: list, size: int):
         yield items[i:i + size]
 
 
-def _iter_bulk_fetch(msg_data: list):
-    """Yield (seq_num_str, raw_bytes) per message in a bulk FETCH response.
+def _iter_bulk_fetch(msg_data: list) -> Iterator[tuple[int, bytes]]:
+    """Yield (uid, raw_bytes) per message in a bulk UID FETCH response.
 
     imaplib flattens multi-message FETCH responses to a list where each message
     is a `(descriptor_bytes, body_bytes)` tuple followed by a `b')'` terminator.
-    The first whitespace-delimited token of the descriptor is the sequence number.
+    Servers must include `UID n` in the descriptor of a UID FETCH response
+    (RFC 3501 §6.4.8), which is what we key on — the leading token is the
+    sequence number and is deliberately ignored.
     """
     for item in msg_data:
         if not (isinstance(item, tuple) and len(item) >= 2):
@@ -106,16 +122,17 @@ def _iter_bulk_fetch(msg_data: list):
         descriptor, raw = item[0], item[1]
         if not isinstance(descriptor, (bytes, bytearray)) or not raw:
             continue
-        first_token = descriptor.split(b" ", 1)[0]
-        try:
-            seq = first_token.decode()
-        except UnicodeDecodeError:
+        m = _UID_RE.search(descriptor)
+        if not m:
             continue
-        yield seq, raw
+        yield int(m.group(1)), raw
 
 
-def _msg_to_header_dict(msg: Message, seq: str) -> dict:
-    msg_id = _strip_message_id(msg.get("Message-ID", "")) or f"seq-{seq}"
+def _msg_to_header_dict(msg: Message, uid: int) -> dict:
+    # The uid fallback keeps identity stable across syncs for the rare message
+    # with no Message-ID; a sequence-number fallback would change every run and
+    # get reprocessed forever.
+    msg_id = _strip_message_id(msg.get("Message-ID", "")) or f"uid-{uid}"
     thread_id = _thread_root_id(msg, fallback=msg_id)
     from_raw = msg.get("From", "")
     _, from_email = parseaddr(from_raw)
@@ -128,6 +145,7 @@ def _msg_to_header_dict(msg: Message, seq: str) -> dict:
             pass
     return {
         "id": msg_id,
+        "uid": uid,
         "thread_id": thread_id,
         "subject": msg.get("Subject", "") or "",
         "from": from_raw,
@@ -137,115 +155,143 @@ def _msg_to_header_dict(msg: Message, seq: str) -> dict:
         "snippet": "",
         "body_text": "",
         "labels": [],
-        "_seq": seq,
     }
 
 
-def list_message_headers_since(
-    creds: ImapCredentials,
-    since_dt: datetime,
-    max_results: int = 200,
-    search_filter: str | None = None,
-) -> list[dict]:
-    """Phase 1: cheap pull. Returns header-only dicts (no body_text, no snippet).
+class Mailbox:
+    """One authenticated read-only IMAP session, addressed by UID.
 
-    `search_filter`: optional extra IMAP SEARCH criteria ANDed with SINCE. Use
-    it to push keyword/sender filtering server-side and avoid fetching
-    everything (e.g. for free-mode syncs that wouldn't classify the rest anyway).
+    Use as a context manager. `reconnect()` exists because long syncs outlive
+    Gmail's idle tolerance; UID addressing is what makes reconnecting safe.
     """
-    conn = open_imap(creds)
-    try:
-        conn.select(INBOX_FOLDER, readonly=True)
-        base = f'SINCE "{_imap_date(since_dt)}"'
-        query = f"({base} {search_filter})" if search_filter else f"({base})"
-        typ, data = conn.search(None, query)
-        if typ != "OK" or not data or not data[0]:
-            return []
-        seq_nums = list(reversed(data[0].split()))[:max_results]
 
-        t0 = time.perf_counter()
-        out: list[dict] = []
-        for chunk in _chunked(seq_nums, HEADER_BULK_CHUNK):
-            chunk_set = b",".join(chunk)
-            typ, msg_data = conn.fetch(chunk_set, f"(BODY.PEEK[HEADER.FIELDS ({HEADER_FIELDS})])")
-            if typ != "OK":
-                continue
-            for seq, raw in _iter_bulk_fetch(msg_data):
-                msg = email.message_from_bytes(raw)
-                out.append(_msg_to_header_dict(msg, seq))
-        elapsed = time.perf_counter() - t0
-        print(f"[inbox] header bulk fetch: {len(out)} messages in {elapsed:.1f}s ({len(seq_nums) // HEADER_BULK_CHUNK + 1} chunks)")
-        return out
-    finally:
+    def __init__(self, creds: ImapCredentials, folder: str = INBOX_FOLDER):
+        self.creds = creds
+        self.folder = folder
+        self.conn: imaplib.IMAP4_SSL | None = None
+
+    def __enter__(self) -> "Mailbox":
+        self.connect()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    def connect(self) -> None:
+        self.conn = open_imap(self.creds)
+        self.conn.select(self.folder, readonly=True)
+
+    def reconnect(self) -> None:
+        self.close()
+        self.connect()
+
+    def close(self) -> None:
+        if self.conn is None:
+            return
         try:
-            conn.logout()
+            self.conn.logout()
         except (imaplib.IMAP4.error, OSError):
             # Best-effort cleanup; idle connections expire server-side anyway.
             pass
+        self.conn = None
 
+    def status(self) -> tuple[int, int]:
+        """Return (uidvalidity, uidnext) for the selected folder.
 
-def _open_select(creds: ImapCredentials):
-    conn = open_imap(creds)
-    conn.select(INBOX_FOLDER, readonly=True)
-    return conn
+        UIDVALIDITY changing means the server re-issued the whole UID space, so
+        every UID we stored is meaningless and coverage must reset.
+        """
+        typ, data = self.conn.status(self.folder, "(UIDVALIDITY UIDNEXT)")
+        if typ != "OK" or not data:
+            raise RuntimeError(f"IMAP STATUS failed for {self.folder}")
+        raw = data[0] if isinstance(data[0], (bytes, bytearray)) else b""
+        uidvalidity = re.search(rb"UIDVALIDITY\s+(\d+)", raw)
+        uidnext = re.search(rb"UIDNEXT\s+(\d+)", raw)
+        return (
+            int(uidvalidity.group(1)) if uidvalidity else 0,
+            int(uidnext.group(1)) if uidnext else 0,
+        )
 
+    def search_uids(self, criteria: str) -> list[int]:
+        """Run `UID SEARCH <criteria>`. Returns UIDs ascending."""
+        typ, data = self.conn.uid("SEARCH", None, criteria)
+        if typ != "OK" or not data or not data[0]:
+            return []
+        return sorted(int(tok) for tok in data[0].split())
 
-def populate_bodies(creds: ImapCredentials, messages: list[dict]) -> None:
-    """Phase 2: fetch full bodies for the given header-dicts in place.
+    def iter_header_pages(
+        self, uids_desc: list[int], page_size: int = HEADER_PAGE,
+    ) -> Iterator[list[dict]]:
+        """Yield pages of header-only dicts, newest UID first.
 
-    Resilient to mid-fetch connection drops — on a network blip we reconnect
-    once for the failed chunk and retry. If it fails again, that chunk is
-    skipped (those messages get classified on subject+sender alone).
-    """
-    if not messages:
-        return
-    by_seq = {m.get("_seq"): m for m in messages if m.get("_seq")}
-    if not by_seq:
-        return
-    seqs = list(by_seq.keys())
+        Paging (rather than one big slice) is what lets the caller stop on a
+        budget while still knowing exactly how far down it got.
+        """
+        for page in _chunked(uids_desc, page_size):
+            out: list[dict] = []
+            for chunk in _chunked(page, HEADER_BULK_CHUNK):
+                chunk_set = ",".join(str(u) for u in chunk)
+                typ, msg_data = self.conn.uid(
+                    "FETCH", chunk_set, f"(BODY.PEEK[HEADER.FIELDS ({HEADER_FIELDS})])",
+                )
+                if typ != "OK":
+                    continue
+                for uid, raw in _iter_bulk_fetch(msg_data):
+                    out.append(_msg_to_header_dict(email.message_from_bytes(raw), uid))
+            out.sort(key=lambda m: m["uid"], reverse=True)
+            yield out
 
-    conn = _open_select(creds)
-    try:
+    def populate_bodies(self, messages: list[dict]) -> None:
+        """Fetch full bodies for the given header-dicts in place.
+
+        Resilient to mid-fetch connection drops — on a network blip we reconnect
+        once for the failed chunk and retry. If it fails again, that chunk is
+        skipped (those messages get classified on subject+sender alone).
+        """
+        by_uid = {m["uid"]: m for m in messages if m.get("uid")}
+        if not by_uid:
+            return
+        uids = list(by_uid.keys())
         t0 = time.perf_counter()
         skipped = 0
-        for chunk_idx, chunk in enumerate(_chunked(seqs, BODY_BULK_CHUNK)):
-            chunk_set = ",".join(chunk).encode()
+        for chunk_idx, chunk in enumerate(_chunked(uids, BODY_BULK_CHUNK)):
+            chunk_set = ",".join(str(u) for u in chunk)
             for attempt in range(2):
                 try:
-                    typ, msg_data = conn.fetch(chunk_set, "(BODY.PEEK[])")
+                    typ, msg_data = self.conn.uid("FETCH", chunk_set, "(BODY.PEEK[])")
                     if typ != "OK":
                         break
-                    for seq, raw in _iter_bulk_fetch(msg_data):
-                        target = by_seq.get(seq)
+                    for uid, raw in _iter_bulk_fetch(msg_data):
+                        target = by_uid.get(uid)
                         if target is None:
                             continue
-                        full_msg = email.message_from_bytes(raw)
-                        body = _extract_body(full_msg)
+                        body = _extract_body(email.message_from_bytes(raw))
                         target["body_text"] = body
                         target["snippet"] = re.sub(r"\s+", " ", body)[:200]
                     break
                 except (imaplib.IMAP4.abort, imaplib.IMAP4.error, OSError) as e:
                     if attempt == 0:
                         print(f"[inbox] body chunk {chunk_idx} failed ({e}); reconnecting")
-                        try:
-                            conn.logout()
-                        except (imaplib.IMAP4.error, OSError):
-                            pass
-                        conn = _open_select(creds)
+                        self.reconnect()
                     else:
                         skipped += len(chunk)
                         print(f"[inbox] body chunk {chunk_idx} failed twice; skipping {len(chunk)} messages")
         elapsed = time.perf_counter() - t0
         if skipped:
-            print(f"[inbox] body bulk fetch: {len(seqs) - skipped}/{len(seqs)} in {elapsed:.1f}s ({skipped} skipped)")
+            print(f"[inbox] body bulk fetch: {len(uids) - skipped}/{len(uids)} in {elapsed:.1f}s ({skipped} skipped)")
         else:
-            print(f"[inbox] body bulk fetch: {len(seqs)} messages in {elapsed:.1f}s")
-    finally:
-        try:
-            conn.logout()
-        except (imaplib.IMAP4.error, OSError):
-            # Best-effort cleanup; idle connections expire server-side anyway.
-            pass
+            print(f"[inbox] body bulk fetch: {len(uids)} messages in {elapsed:.1f}s")
+
+
+def resolve_horizon_uid(mailbox: Mailbox, since_dt: datetime, uidnext: int) -> int:
+    """Lowest UID at or after `since_dt` — the oldest message a sync will ever
+    look at. IMAP SINCE is date-granular, which only ever widens the window.
+
+    Empty result means nothing in the mailbox is that recent, so the horizon
+    collapses to UIDNEXT (nothing to scan) rather than 1 (scan all history).
+    """
+    uids = mailbox.search_uids(f'SINCE "{_imap_date(since_dt)}"')
+    return uids[0] if uids else max(uidnext, 1)
 
 
 def thread_url(message_id: str) -> str:

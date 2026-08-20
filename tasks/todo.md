@@ -621,6 +621,40 @@ Documentation said "14 suites / 93 tests" — real count is **17 suites / 135 te
 - [ ] UI: "Workday apply (beta)" toggle in Settings; per-row Apply button on Workday jobs only shows when toggle is on
 - [ ] CAPTCHA handling — reuse existing `captcha_handler` prompt channel; assume occasional challenges at signup
 
+## Phase 45 — Inbox sync: UID coverage model (fixes silent message loss)
+
+*Bug report: a "Vanguard - Job Offer" email (2026-06-25, `sharon_high@vanguard.com`) never surfaced as a proposal. Root cause confirmed by direct IMAP inspection — it was never fetched.*
+
+### Root cause (two defects, one theme: addressing by position instead of identity)
+1. **Unrecorded window truncation.** `list_message_headers_since` slices the search result to `max_results` newest-first (`fetch.py:164`). The Aug 20 sync asked for everything since May 12 — 2248 messages — and kept the newest 1000, reaching back only to **Jul 10**. `_commit_state` then stamped `last_sync_at = now` (`sync.py:449`), so the Jul 10 → May 12 gap (~1248 messages, including the offer) became permanently invisible to normal syncs. The state model stores a *point* where the truth is an *interval*, so partial coverage is unrepresentable and gets discarded.
+2. **Sequence-number aliasing.** Header fetch stores `_seq` and logs out; `populate_bodies` opens a *new connection* and fetches bodies by those numbers. Sequence numbers shift on any expunge, so bodies can be stapled to the wrong headers — silent, and yields confidently wrong classifications. Same defect gives unstable identity for messages with no `Message-ID` (`f"seq-{seq}"` fallback, `fetch.py:118`).
+
+### Design — contiguous UID coverage block
+State v2 keeps `[covered_low_uid, covered_high_uid]` as an interval whose invariant is *every UID inside has been fetched and classified*. Each sync spends a budget of **new** messages: head pass first (`UID {covered_high+1}:*`, newest-first, preserves recency-first UX), then backlog pass with the remainder (`UID {horizon}:{covered_low-1}`), lowering `covered_low`. Coverage only grows contiguously, so nothing is skipped — only deferred, and the deferral is a visible number.
+
+### Scope (in)
+- [x] `src/inbox/fetch.py` — `Mailbox` class: one authenticated read-only connection for the whole sync, with `reconnect()`, `search_uids()`, `iter_headers()` (paged, newest-first), `populate_bodies()`. All addressing via `UID SEARCH` / `UID FETCH`. Kills defect #2 outright
+- [x] `config/inbox_state_schema.json` — v2 fields (`uidvalidity`, `horizon_uid`, `covered_low_uid`, `covered_high_uid`); `last_sync_at` demoted to informational
+- [x] `src/inbox/sync.py` — `_migrate_state` (v1 → v2), head + backlog passes, per-page coverage commit, exact `backlog_remaining` count
+- [x] **Budget is counted in messages that will be classified** — already-processed and prefiltered messages cost a header fetch, not a Claude call, so a re-scan is cheap and API spend tracks genuinely-new mail only
+- [x] **Cancel keeps progress** — coverage commits per page, so a cancelled deep sync resumes instead of discarding everything (current behaviour throws it all away)
+- [x] `src/tasks/runner.py` — let `work()` return a string that overrides `idle_message`, so the terminal banner can report a backlog
+- [x] UI must never report "Sync complete." while `backlog_remaining > 0` — the false all-clear is what hid this for two months
+- [x] Fix `sync.py:450` — `list(set)[-MAX:]` evicts arbitrary ids, not oldest; make the id store ordered
+- [x] `tests/test_inbox_sync.py` — **first test coverage for `src/inbox/` (17 suites, zero touch this package today)**: truncated head pass leaves backlog; repeated syncs strictly lower `covered_low` and terminate; message past the budget edge is proposed on sync #2; UIDVALIDITY change resets; no-op sync stays a no-op
+
+### Scope (out)
+- INBOX-only scanning — archived / filtered mail stays invisible. Not the cause here; separate decision
+- Review-queue semantics — unchanged, proposals still manual
+
+### Verification — shipped
+- [x] Full `pytest` green: **171 passed** (was 163), `ruff check src tests` clean
+- [x] Live IMAP run on the real mailbox: UID addressing, paged header pulls, coverage advance and exact backlog count all correct against 3,943 real messages, zero API spend (all deduped at header stage)
+- [x] Live end-to-end on the actual missed message, in a throwaway profile reproducing June's kanban: `[new_application -> offer] 'Vanguard' 'Vanguard - Job Offer' conf=0.95 no_match` — the email the old sync never fetched now surfaces as a proposal, and the banner reads *"Caught up on new mail · 3898 older messages still to scan"* instead of "Sync complete."
+
+### Postscript
+The offer email itself no longer needs surfacing on the real profile: a dashboard Deep sync (18:07–18:24 UTC, old code) fetched it, and its proposal was correctly dropped by the `new_application` dedup guard because a manual Vanguard "offer" entry already existed on the kanban. The windowing bug was still real — it's why the email sat unseen from Jun 25 to Aug 20.
+
 ## Followups (small, not-yet-phased)
 - [x] ~~**Flaky test in `tests/test_batch_apply.py::test_cancel_mid_batch_marks_remaining_not_attempted`**~~ — fixed. Root cause was NOT daemon-thread bleed (the earlier guess in lessons.md was wrong); it was a race between `request_cancel` and the `submit_handler` polling in `prompt.ask`. The handler caught `PromptCancelled` and returned `"skip"`, so a cancel mid-prompt fell through `_decide_submit_action` as a real user-skip and got recorded as "skipped" instead of "not_attempted". Fix in `src/ui/routes/apply/batch.py`: handlers no longer swallow `PromptCancelled`; the loop body catches it and skips the `_append_completed` so the cleanup pass marks the index as `not_attempted`. 5/5 in-suite runs pass post-fix (was 3/5 failing)
 - [ ] **Doc drift on test counts** — `CLAUDE.md`, `README.md`, `tests/README.md` all say "14 suites / 93 tests" but real count is **17 suites / 135 tests** (Phase 39 added test_ashby, Phase 40/41 added test_companies_delete + test_jobs_delete). Small one-shot bump.

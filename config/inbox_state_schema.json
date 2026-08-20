@@ -1,14 +1,40 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "AutoApply Inbox Sync State",
+  "description": "Coverage model for inbox sync. [covered_low_uid, covered_high_uid] is the contiguous block of mailbox UIDs already fetched and classified; anything between horizon_uid and covered_low_uid is known-unscanned backlog. Storing an interval rather than a timestamp is what keeps a truncated sync window visible instead of silently dropped.",
   "type": "object",
-  "required": ["last_sync_at", "processed_message_ids"],
+  "required": ["processed_message_ids"],
   "properties": {
-    "last_sync_at": { "type": "string" },
+    "last_sync_at": {
+      "type": "string",
+      "description": "Informational only — displayed in the UI. Coverage is decided by the UID fields, never by this."
+    },
+    "uidvalidity": {
+      "type": "integer",
+      "description": "Mailbox UID generation. A change invalidates every stored UID and resets coverage."
+    },
+    "horizon_uid": {
+      "type": "integer",
+      "description": "Oldest UID a sync will ever look at, resolved once from the lookback window."
+    },
+    "covered_low_uid": {
+      "type": "integer",
+      "description": "Lowest UID of the contiguous covered block."
+    },
+    "covered_high_uid": {
+      "type": "integer",
+      "description": "Highest UID of the contiguous covered block."
+    },
+    "coverage_classifier": {
+      "type": "string",
+      "enum": ["llm", "keyword"],
+      "description": "Weakest classifier that built the current covered block. Free mode filters server-side, so upgrading keyword -> llm resets coverage rather than inheriting its blind spots."
+    },
     "processed_message_ids": {
       "type": "array",
       "items": { "type": "string" },
-      "uniqueItems": true
+      "uniqueItems": true,
+      "description": "Ordered oldest-to-newest so capping drops the oldest, not an arbitrary member."
     }
   },
   "additionalProperties": false

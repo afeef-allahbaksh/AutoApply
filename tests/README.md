@@ -1,6 +1,6 @@
 # Tests
 
-14 test suites, 93 individual test functions, all hermetic.
+20 test suites, 171 individual test functions, all hermetic.
 
 ## Running
 

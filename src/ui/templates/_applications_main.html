@@ -27,6 +27,13 @@
     <div class="sync-banner sync-banner-warning">{{ sync_status.message }}</div>
   {% elif sync_status and sync_status.state == 'cancelled' %}
     <div class="sync-banner sync-banner-warning">{{ sync_status.message or 'Sync cancelled.' }}</div>
+  {% elif sync_status and sync_status.backlog_remaining %}
+    <div class="sync-banner sync-banner-warning">
+      <span>{{ sync_status.message }}</span>
+      <form hx-post="/email/sync" hx-target="#applications-content" hx-swap="outerHTML" style="margin-left: auto;">
+        <button type="submit" class="btn-secondary btn-sm">Scan older mail</button>
+      </form>
+    </div>
   {% endif %}
 
   {% include "_email_proposals.html" %}

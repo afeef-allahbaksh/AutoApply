@@ -17,9 +17,12 @@ from src.schemas import validate_inbox_state, validate_proposals
 from src.tasks import runner
 
 INITIAL_LOOKBACK_DAYS = 365
-DEFAULT_MAX_MESSAGES = 1000
 DEEP_LOOKBACK_DAYS = 1825
-DEEP_MAX_MESSAGES = 5000
+# Per-run budgets, counted in messages that actually reach the classifier.
+# Already-processed and prefiltered messages cost a header fetch, not an API
+# call, so re-scanning a covered range is cheap and doesn't burn budget.
+DEFAULT_MAX_NEW = 1000
+DEEP_MAX_NEW = 5000
 MIN_CONFIDENCE = 0.6
 # Messages per pipeline chunk — drives how often the UI sees a progress update
 # and how often new proposals appear on the kanban. ~2 batches per chunk at
@@ -100,12 +103,34 @@ def request_cancel(profile_name: str) -> bool:
     return runner.request_cancel(status_path(profile_name))
 
 
+def _empty_state() -> dict:
+    return {
+        "last_sync_at": "",
+        "uidvalidity": 0,
+        "horizon_uid": 0,
+        "covered_low_uid": 0,
+        "covered_high_uid": 0,
+        "coverage_classifier": "llm",
+        "processed_message_ids": [],
+    }
+
+
 def load_state(profile_name: str) -> dict:
+    """Read state, filling in v2 coverage fields.
+
+    A v1 state (timestamp watermark, no UID fields) migrates to empty coverage:
+    the first v2 sync then walks the whole lookback window newest-first, and the
+    retained `processed_message_ids` make the already-classified part of that
+    walk cost header fetches only. That is what heals a window a v1 truncation
+    had silently skipped.
+    """
     p = state_path(profile_name)
+    state = _empty_state()
     if not p.exists():
-        return {"last_sync_at": "", "processed_message_ids": []}
+        return state
     with open(p) as f:
-        return json.load(f)
+        state.update(json.load(f))
+    return state
 
 
 def save_state(profile_name: str, state: dict) -> None:
@@ -238,6 +263,8 @@ def _sync_worker(profile_name: str, deep: bool, classifier: str = "llm") -> None
     consistent across task kinds."""
     runner.run_with_terminal_status(
         status_path(profile_name),
+        # The pipeline returns its own completion line — it's the only thing that
+        # knows whether any backlog is left, and "Sync complete." would be a lie.
         work=lambda: _run_sync_streaming(profile_name, deep, classifier),
         idle_message="Sync complete.",
         cancelled_message="Sync cancelled. Re-click Sync to resume.",
@@ -297,97 +324,269 @@ def _classify_chunk(chunk: list[dict], classifier: str, profile_name: str) -> li
     return classify.classify_messages(chunk)
 
 
-def _run_sync_streaming(profile_name: str, deep: bool, classifier: str = "llm") -> None:
-    """The actual pipeline. Writes proposals incrementally; updates sync_status."""
+class _Progress:
+    """Running totals for one sync run, shared across both passes."""
+
+    def __init__(self) -> None:
+        self.examined = 0
+        self.classified = 0
+        self.proposals = 0
+        self.spent = 0          # messages sent to the classifier (the budget unit)
+        self.cancelled = False
+
+
+def _select_page(page: list[dict], processed_ids: set, remaining: int) -> tuple[list[dict], list[dict], int | None]:
+    """Split one newest-first header page into (to_classify, examined, floor_uid).
+
+    Walks UIDs downward and stops the moment the budget is spent, so `floor_uid`
+    is the exact UID down to which this page was examined — that, not the page
+    boundary, is what coverage advances to. `None` means the budget was already
+    gone and nothing here was looked at.
+    """
+    to_classify: list[dict] = []
+    examined: list[dict] = []
+    floor: int | None = None
+    for msg in page:
+        if len(to_classify) >= remaining:
+            break
+        floor = msg["uid"]
+        examined.append(msg)
+        if msg["id"] in processed_ids:
+            continue
+        if not _prefilter(msg):
+            continue
+        to_classify.append(msg)
+    return to_classify, examined, floor
+
+
+def _walk_uids(
+    profile_name: str,
+    mailbox: "fetch.Mailbox",
+    uids_desc: list[int],
+    state: dict,
+    processed_ids: set,
+    budget: int,
+    classifier: str,
+    progress: _Progress,
+    lower_only: bool,
+    prev_low: int = 0,
+    prev_high: int = 0,
+) -> None:
+    """Process UIDs newest-first, committing coverage after every whole page.
+
+    `lower_only` distinguishes the backlog pass (extends the covered block
+    downward) from the head pass (also raises `covered_high_uid`, and merges
+    with the previous block when the walk reaches it).
+
+    Coverage is committed per page rather than per run so a cancelled sync keeps
+    everything it finished — the old all-or-nothing commit threw away an entire
+    deep sync on cancel.
+    """
+    status_file = status_path(profile_name)
+    for page in mailbox.iter_header_pages(uids_desc):
+        if runner.is_cancel_requested(status_file):
+            progress.cancelled = True
+            return
+        if not page:
+            continue
+
+        to_classify, examined, floor = _select_page(page, processed_ids, budget - progress.spent)
+        if floor is None:
+            return  # budget spent — stop before examining anything in this page
+
+        if to_classify:
+            _write_sync_status(
+                profile_name,
+                message=f"Fetching bodies for {len(to_classify)} candidates…",
+            )
+            mailbox.populate_bodies(to_classify)
+            for chunk in _chunked(to_classify, CLASSIFY_CHUNK_SIZE):
+                # Cooperative cancel — checked between chunks so we don't abort
+                # mid-API-call. Bailing here leaves this page uncommitted, so the
+                # next sync redoes it rather than skipping it.
+                if runner.is_cancel_requested(status_file):
+                    progress.cancelled = True
+                    return
+                _classify_and_propose(profile_name, chunk, classifier, progress)
+
+        # Whole page done: only now does it count as covered.
+        processed_ids.update(m["id"] for m in examined)
+        progress.examined += len(examined)
+        progress.spent += len(to_classify)
+        _advance_coverage(state, page_high=page[0]["uid"], floor=floor, lower_only=lower_only,
+                          prev_low=prev_low, prev_high=prev_high)
+        _save_coverage(profile_name, state, processed_ids)
+
+        if progress.spent >= budget:
+            return
+
+
+def _advance_coverage(
+    state: dict, page_high: int, floor: int, lower_only: bool,
+    prev_low: int = 0, prev_high: int = 0,
+) -> None:
+    """Extend the covered block to include everything down to `floor`.
+
+    The block must stay contiguous, which is the whole invariant. A head walk
+    descends page by page, so its low-water mark is simply how far it got; the
+    merge test is against the block as it stood *before this run* (`prev_*`) —
+    testing against the running block instead would be satisfied by the walk's
+    own previous page and freeze coverage at the first page's floor.
+
+    Reaching the previous block (`floor <= prev_high + 1`) merges with it and
+    keeps its low-water mark; stopping short leaves it behind as backlog to be
+    re-walked later (cheap — its message ids dedup at header stage). Either way
+    no UID is recorded as covered without having been classified.
+    """
+    if lower_only:
+        state["covered_low_uid"] = floor
+        return
+    state["covered_high_uid"] = max(state.get("covered_high_uid") or 0, page_high)
+    if prev_low and prev_high and floor <= prev_high + 1:
+        state["covered_low_uid"] = min(prev_low, floor)
+    else:
+        state["covered_low_uid"] = floor
+
+
+def _classify_and_propose(profile_name: str, chunk: list[dict], classifier: str, progress: _Progress) -> None:
+    chunk_classified = _classify_chunk(chunk, classifier, profile_name)
+    chunk_new = _propose_for_chunk(profile_name, chunk, chunk_classified)
+    if chunk_new:
+        with _proposal_lock(profile_name):
+            latest = load_proposals(profile_name)
+            latest_ids = {p["id"] for p in latest}
+            additions = [p for p in chunk_new if p["id"] not in latest_ids]
+            if additions:
+                save_proposals(profile_name, latest + additions)
+        progress.proposals += len(chunk_new)
+    progress.classified += len(chunk)
+    _write_sync_status(
+        profile_name,
+        classified=progress.classified,
+        new_proposals=progress.proposals,
+        message=f"Classified {progress.classified} · {progress.proposals} proposals so far",
+    )
+
+
+def _run_sync_streaming(profile_name: str, deep: bool, classifier: str = "llm") -> str:
+    """The actual pipeline. Writes proposals incrementally; updates sync_status.
+
+    Two passes over one connection: newest mail first (so an interview invite
+    that landed an hour ago is never queued behind a year of backlog), then the
+    remaining budget spent walking backwards into whatever history isn't covered
+    yet. Returns the message the completion banner should show.
+    """
     creds = auth.load_credentials(profile_name)
     if not creds:
         raise RuntimeError("Inbox not connected. Connect on the Settings page first.")
 
     state = load_state(profile_name)
     processed_ids = set(state.get("processed_message_ids", []))
+    lookback_days = DEEP_LOOKBACK_DAYS if deep else INITIAL_LOOKBACK_DAYS
+    budget = DEEP_MAX_NEW if deep else DEFAULT_MAX_NEW
+    progress = _Progress()
 
-    if deep:
-        since_dt = datetime.now(timezone.utc) - timedelta(days=DEEP_LOOKBACK_DAYS)
-        max_messages = DEEP_MAX_MESSAGES
-    else:
-        last_sync_str = state.get("last_sync_at") or ""
-        if last_sync_str:
-            since_dt = datetime.fromisoformat(last_sync_str)
-        else:
-            since_dt = datetime.now(timezone.utc) - timedelta(days=INITIAL_LOOKBACK_DAYS)
-        max_messages = DEFAULT_MAX_MESSAGES
+    _write_sync_status(profile_name, message="Connecting to inbox…")
+    with fetch.Mailbox(creds) as mailbox:
+        uidvalidity, uidnext = mailbox.status()
+        if state.get("uidvalidity") and state["uidvalidity"] != uidvalidity:
+            # Server re-issued the UID space; every stored UID is meaningless.
+            print(f"[inbox] UIDVALIDITY changed ({state['uidvalidity']} -> {uidvalidity}); resetting coverage")
+            state.update(covered_low_uid=0, covered_high_uid=0, horizon_uid=0)
+        state["uidvalidity"] = uidvalidity
 
-    search_filter = _free_mode_search_filter() if classifier == "keyword" else None
-    filter_label = " (server-side keyword filter)" if search_filter else ""
-    print(f"[inbox] sync starting (deep={deep}, since={since_dt.date()}, max={max_messages}, classifier={classifier}{filter_label})")
-    _write_sync_status(profile_name, message=f"Fetching headers from IMAP{filter_label}…")
-    headers = fetch.list_message_headers_since(
-        creds, since_dt, max_results=max_messages, search_filter=search_filter,
-    )
-    print(f"[inbox] fetched {len(headers)} headers")
+        # Free mode filters server-side, so its walk never even sees messages
+        # outside the keyword set. Marking those UIDs covered would hide them
+        # from a later paid sync, so an upgrade to the LLM classifier resets
+        # coverage and re-walks. Skipped messages were never fetched, so they
+        # aren't in `processed_message_ids` and do get classified the second time.
+        covered_by = state.get("coverage_classifier") or classifier
+        if classifier == "llm" and covered_by == "keyword":
+            print("[inbox] classifier upgraded keyword -> llm; resetting coverage for a full re-walk")
+            state.update(covered_low_uid=0, covered_high_uid=0)
+            covered_by = "llm"
+        state["coverage_classifier"] = "keyword" if "keyword" in (covered_by, classifier) else "llm"
+        search_filter = _free_mode_search_filter() if classifier == "keyword" else ""
 
-    new_messages = [m for m in headers if m["id"] not in processed_ids]
-    survivors = [m for m in new_messages if _prefilter(m)]
-    print(f"[inbox] {len(new_messages)} new, {len(survivors)} survived prefilter")
+        since_dt = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+        wanted_horizon = fetch.resolve_horizon_uid(mailbox, since_dt, uidnext)
+        horizon = state.get("horizon_uid") or 0
+        # A deep sync widens the horizon; a normal sync must never narrow it, or
+        # backlog below the new horizon would become unreachable.
+        state["horizon_uid"] = horizon = min(horizon, wanted_horizon) if horizon else wanted_horizon
+
+        print(f"[inbox] sync starting (deep={deep}, classifier={classifier}, budget={budget}, "
+              f"horizon_uid={horizon}, covered={state['covered_low_uid']}-{state['covered_high_uid']})")
+
+        # --- Head pass: everything newer than the covered block ---
+        head_from = max((state.get("covered_high_uid") or 0) + 1, horizon)
+        _write_sync_status(profile_name, message="Checking for new mail…")
+        # `UID n:*` always returns the highest UID even when it is below n
+        # (RFC 3501 range semantics), so filter rather than trust the server.
+        head = [u for u in mailbox.search_uids(f"UID {head_from}:* {search_filter}".strip()) if u >= head_from]
+        print(f"[inbox] head pass: {len(head)} uids from {head_from}")
+        if head:
+            _walk_uids(profile_name, mailbox, sorted(head, reverse=True), state,
+                       processed_ids, budget, classifier, progress, lower_only=False,
+                       prev_low=state.get("covered_low_uid") or 0,
+                       prev_high=state.get("covered_high_uid") or 0)
+
+        # --- Backlog pass: whatever history the covered block hasn't reached ---
+        if not progress.cancelled and progress.spent < budget:
+            low = state.get("covered_low_uid") or 0
+            if low > horizon:
+                backlog = [u for u in mailbox.search_uids(f"UID {horizon}:{low - 1} {search_filter}".strip()) if u < low]
+                print(f"[inbox] backlog pass: {len(backlog)} uids in {horizon}-{low - 1}")
+                if backlog:
+                    _write_sync_status(profile_name, message=f"Scanning {len(backlog)} older messages…")
+                    _walk_uids(profile_name, mailbox, sorted(backlog, reverse=True), state,
+                               processed_ids, budget, classifier, progress, lower_only=True)
+
+        remaining = _backlog_remaining(mailbox, state)
+
+    state["last_sync_at"] = datetime.now(timezone.utc).isoformat()
+    _save_coverage(profile_name, state, processed_ids)
     _write_sync_status(
         profile_name,
-        messages_seen=len(new_messages),
-        after_prefilter=len(survivors),
-        message=f"Fetching bodies for {len(survivors)} candidates…",
+        messages_seen=progress.examined,
+        after_prefilter=progress.spent,
+        classified=progress.classified,
+        new_proposals=progress.proposals,
+        backlog_remaining=remaining,
     )
+    print(f"[inbox] sync done: {progress.proposals} new proposals, "
+          f"{progress.examined} examined, {remaining} backlog (cancelled={progress.cancelled})")
 
-    if not survivors:
-        # No bodies to fetch, nothing to classify. Still bump state so the next
-        # sync starts from now.
-        _commit_state(profile_name, processed_ids, new_messages)
-        return
+    if progress.cancelled:
+        return ""
+    if remaining:
+        # Never report a clean finish over a window we knowingly didn't reach —
+        # that false all-clear is exactly how a missed offer email goes unnoticed.
+        return f"Caught up on new mail · {remaining} older messages still to scan — click Sync again."
+    return f"Sync complete. {progress.proposals} new proposals." if progress.proposals else "Sync complete."
 
-    fetch.populate_bodies(creds, survivors)
-    classifier_label = "Claude" if classifier == "llm" else "keyword patterns"
-    print(f"[inbox] bodies fetched; classifying in chunks of {CLASSIFY_CHUNK_SIZE} ({classifier_label})…")
-    _write_sync_status(profile_name, message=f"Classifying with {classifier_label}…")
 
-    classified_total = 0
-    new_proposals_total = 0
-    cancelled = False
+def _backlog_remaining(mailbox: "fetch.Mailbox", state: dict) -> int:
+    """Exact count of messages below the covered block, so the UI can state the
+    gap instead of implying there isn't one."""
+    low = state.get("covered_low_uid") or 0
+    horizon = state.get("horizon_uid") or 0
+    if not low or low <= horizon:
+        return 0
+    return len([u for u in mailbox.search_uids(f"UID {horizon}:{low - 1}") if u < low])
 
-    for chunk in _chunked(survivors, CLASSIFY_CHUNK_SIZE):
-        # Cooperative cancel — checked between chunks so we don't abort
-        # mid-API-call. ~6-10s max latency before the worker exits.
-        if runner.is_cancel_requested(status_path(profile_name)):
-            cancelled = True
-            print(f"[inbox] cancel requested at {classified_total}/{len(survivors)} classified")
-            break
 
-        chunk_classified = _classify_chunk(chunk, classifier, profile_name)
-        chunk_new = _propose_for_chunk(profile_name, chunk, chunk_classified)
+def _save_coverage(profile_name: str, state: dict, processed_ids: set) -> None:
+    """Persist coverage + the message-id guard.
 
-        if chunk_new:
-            with _proposal_lock(profile_name):
-                latest = load_proposals(profile_name)
-                latest_ids = {p["id"] for p in latest}
-                additions = [p for p in chunk_new if p["id"] not in latest_ids]
-                if additions:
-                    save_proposals(profile_name, latest + additions)
-            new_proposals_total += len(chunk_new)
-
-        classified_total += len(chunk)
-        _write_sync_status(
-            profile_name,
-            classified=classified_total,
-            new_proposals=new_proposals_total,
-            message=(
-                f"Classified {classified_total}/{len(survivors)} · "
-                f"{new_proposals_total} proposals so far"
-            ),
-        )
-
-    # Only commit state on clean completion. On cancel, leave processed_message_ids
-    # untouched so a re-sync picks up where we left off (proposed messages skip
-    # via the in-loop existing_ids check).
-    if not cancelled:
-        _commit_state(profile_name, processed_ids, new_messages)
-    print(f"[inbox] sync done: {new_proposals_total} new proposals (cancelled={cancelled})")
+    Ids are stored in sorted order and capped from the front. The UID block is
+    the authoritative record of what has been handled; this list only guards
+    ranges that get re-walked, so a deterministic cap is enough — the previous
+    `list(set)[-N:]` evicted arbitrary members because set iteration order isn't
+    insertion order.
+    """
+    state["processed_message_ids"] = sorted(processed_ids)[-MAX_PROCESSED_IDS:]
+    save_state(profile_name, state)
 
 
 def _propose_for_chunk(profile_name: str, chunk: list[dict], classified: list[dict]) -> list[dict]:
@@ -442,11 +641,3 @@ def _propose_for_chunk(profile_name: str, chunk: list[dict], classified: list[di
         out.append(_build_proposal(msg, c, match))
         existing_ids.add(msg["id"])
     return out
-
-
-def _commit_state(profile_name: str, processed_ids: set, new_messages: list[dict]) -> None:
-    state = load_state(profile_name)
-    state["last_sync_at"] = datetime.now(timezone.utc).isoformat()
-    combined_ids = list(processed_ids | {m["id"] for m in new_messages})
-    state["processed_message_ids"] = combined_ids[-MAX_PROCESSED_IDS:]
-    save_state(profile_name, state)

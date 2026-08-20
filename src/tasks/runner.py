@@ -133,7 +133,7 @@ def start_task(
 
 def run_with_terminal_status(
     status_file: Path,
-    work: Callable[[], None],
+    work: Callable[[], str | None],
     idle_message: str = "Task complete.",
     cancelled_message: str = "Task cancelled.",
     log_prefix: str = "[tasks]",
@@ -143,9 +143,14 @@ def run_with_terminal_status(
     Call this from inside your thread target. `work` is the no-arg callable that
     runs the pipeline; returning cleanly means success (or cancellation, which is
     detected from the cancel flag). Exceptions become terminal `error` state.
+
+    `work` may return a string to override `idle_message` — for workers whose
+    completion banner depends on what they found (e.g. "…N still to scan").
     """
     try:
-        work()
+        outcome = work()
+        if isinstance(outcome, str) and outcome:
+            idle_message = outcome
         final = _read_status_raw(status_file)
         if final.get("cancel_requested"):
             write_status(
